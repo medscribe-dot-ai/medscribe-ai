@@ -22,24 +22,24 @@ function resolveApiUrl(): string {
     return FALLBACK_API_URL;
 }
 
-export default function DoctorDetails() {
+export default function ReceptionistDetails() {
     const router = useRouter();
     const { id } = useLocalSearchParams();
-    const [doctor, setDoctor] = useState<any>(null);
+    const [receptionist, setReceptionist] = useState<any>(null);
     const [loading, setLoading] = useState(true);
     const [deleting, setDeleting] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
-        loadDoctorData();
+        loadReceptionistData();
     }, [id]);
 
-    const loadDoctorData = async () => {
-        const doctorId = Array.isArray(id) ? id[0] : id;
+    const loadReceptionistData = async () => {
+        const receptionistId = Array.isArray(id) ? id[0] : id;
 
-        if (!doctorId) {
-            setError('Doctor ID is missing.');
-            setDoctor(null);
+        if (!receptionistId) {
+            setError('Receptionist ID is missing.');
+            setReceptionist(null);
             setLoading(false);
             return;
         }
@@ -52,26 +52,26 @@ export default function DoctorDetails() {
 
         try {
             const apiUrl = resolveApiUrl();
-            const response = await fetch(`${apiUrl}/doctors/${doctorId}`, {
+            const response = await fetch(`${apiUrl}/receptionists/${receptionistId}`, {
                 signal: controller.signal,
             });
 
             if (response.status === 404) {
-                setError('Doctor not found.');
-                setDoctor(null);
+                setError('Receptionist not found.');
+                setReceptionist(null);
                 return;
             }
 
             if (!response.ok) {
-                throw new Error(`Failed to fetch doctor (${response.status})`);
+                throw new Error(`Failed to fetch receptionist (${response.status})`);
             }
 
             const data = await response.json();
-            setDoctor(data);
+            setReceptionist(data);
         } catch (fetchError) {
-            console.error('Error fetching doctor details:', fetchError);
-            setError('Unable to load doctor details. Please try again.');
-            setDoctor(null);
+            console.error('Error fetching receptionist details:', fetchError);
+            setError('Unable to load receptionist details. Please try again.');
+            setReceptionist(null);
         } finally {
             clearTimeout(timeoutId);
             setLoading(false);
@@ -82,25 +82,25 @@ export default function DoctorDetails() {
         return (
             <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background }}>
                 <ActivityIndicator size="large" color={colors.primary} />
-                <Text className="mt-3 text-slate-400">Loading Doctor Details...</Text>
+                <Text className="mt-3 text-slate-400">Loading Receptionist Details...</Text>
             </View>
         );
     }
 
-    if (error || !doctor) {
+    if (error || !receptionist) {
         return (
             <SafeAreaView style={{ backgroundColor: colors.background }} className="flex-1">
                 <View className="px-6 py-4 flex-row items-center bg-white border-b border-slate-50">
-                    <TouchableOpacity onPress={() => router.push('/(admin)/doctor')} className="mr-4 p-2 rounded-full bg-slate-50">
+                    <TouchableOpacity onPress={() => router.push('/(admin)/receptionist')} className="mr-4 p-2 rounded-full bg-slate-50">
                         <MaterialCommunityIcons name="arrow-left" size={24} color={colors.darkText} />
                     </TouchableOpacity>
-                    <Text className="text-xl font-bold">Doctor Profile</Text>
+                    <Text className="text-xl font-bold">Receptionist Profile</Text>
                 </View>
                 <View className="flex-1 justify-center items-center px-6">
                     <MaterialCommunityIcons name="account-off-outline" size={56} color="#CBD5E1" />
-                    <Text className="text-slate-500 text-center mt-4">{error ?? 'Doctor not found.'}</Text>
+                    <Text className="text-slate-500 text-center mt-4">{error ?? 'Receptionist not found.'}</Text>
                     <TouchableOpacity
-                        onPress={loadDoctorData}
+                        onPress={loadReceptionistData}
                         className="mt-6 bg-teal-50 px-5 py-3 rounded-2xl border border-teal-100"
                     >
                         <Text style={{ color: colors.primary }} className="font-bold">Retry</Text>
@@ -111,21 +111,21 @@ export default function DoctorDetails() {
     }
 
     const handleDelete = () => {
-        const routeDoctorId = Array.isArray(id) ? id[0] : id;
+        const routeId = Array.isArray(id) ? id[0] : id;
 
-        if (!doctor?.doctor_id || String(doctor.doctor_id) !== String(routeDoctorId)) {
-            Alert.alert('Delete Failed', 'Doctor record mismatch. Please reload and try again.');
+        if (!receptionist?.receptionist_id || String(receptionist.receptionist_id) !== String(routeId)) {
+            Alert.alert('Delete Failed', 'Receptionist record mismatch. Please reload and try again.');
             return;
         }
 
         Alert.alert(
-            "Delete Doctor",
-            `Are you sure you want to permanently delete Dr. ${doctor.name}?`,
+            'Delete Receptionist',
+            `Are you sure you want to permanently delete ${receptionist.name}?`,
             [
-                { text: "Cancel", style: "cancel" },
+                { text: 'Cancel', style: 'cancel' },
                 {
-                    text: "Delete",
-                    style: "destructive",
+                    text: 'Delete',
+                    style: 'destructive',
                     onPress: async () => {
                         setDeleting(true);
                         const controller = new AbortController();
@@ -133,7 +133,7 @@ export default function DoctorDetails() {
 
                         try {
                             const apiUrl = resolveApiUrl();
-                            const response = await fetch(`${apiUrl}/doctors/${doctor.doctor_id}`, {
+                            const response = await fetch(`${apiUrl}/receptionists/${receptionist.receptionist_id}`, {
                                 method: 'DELETE',
                                 signal: controller.signal,
                             });
@@ -155,40 +155,44 @@ export default function DoctorDetails() {
 
                             Alert.alert(
                                 'Deleted',
-                                `${doctor.name} has been permanently removed.`,
-                                [{ text: 'OK', onPress: () => router.replace('/(admin)/doctor') }]
+                                `${receptionist.name} has been permanently removed.`,
+                                [{ text: 'OK', onPress: () => router.replace('/(admin)/receptionist') }]
                             );
                         } catch (deleteError: any) {
-                            console.error('Error deleting doctor:', deleteError);
+                            console.error('Error deleting receptionist:', deleteError);
                             Alert.alert(
                                 'Delete Failed',
-                                deleteError?.message || 'Could not delete doctor. Please try again.'
+                                deleteError?.message || 'Could not delete receptionist. Please try again.'
                             );
                         } finally {
                             clearTimeout(timeoutId);
                             setDeleting(false);
                         }
-                    }
-                }
+                    },
+                },
             ]
         );
     };
 
     const handleEdit = () => {
         router.push({
-            pathname: '/(admin)/doctor/add' as any,
-            params: { editData: JSON.stringify(doctor) }
+            pathname: '/(admin)/receptionist/add' as any,
+            params: { editData: JSON.stringify(receptionist) },
         });
     };
+
+    const createdAt = receptionist.created_at
+        ? new Date(receptionist.created_at).toLocaleDateString()
+        : '—';
 
     return (
         <SafeAreaView style={{ backgroundColor: colors.background }} className="flex-1">
             <View className="px-6 py-4 flex-row items-center justify-between bg-white border-b border-slate-50">
                 <View className="flex-row items-center">
-                    <TouchableOpacity onPress={() => router.push("/(admin)/doctor")} className="mr-4 p-2 rounded-full bg-slate-50">
+                    <TouchableOpacity onPress={() => router.push('/(admin)/receptionist')} className="mr-4 p-2 rounded-full bg-slate-50">
                         <MaterialCommunityIcons name="arrow-left" size={24} color={colors.darkText} />
                     </TouchableOpacity>
-                    <Text className="text-xl font-bold">Doctor Profile</Text>
+                    <Text className="text-xl font-bold">Receptionist Profile</Text>
                 </View>
                 <TouchableOpacity onPress={handleEdit} className="bg-teal-50 p-2 rounded-xl">
                     <MaterialCommunityIcons name="pencil" size={20} color={colors.primary} />
@@ -202,50 +206,30 @@ export default function DoctorDetails() {
             >
                 <View className="bg-white p-6 rounded-[32px] items-center border border-slate-100 mb-6 shadow-sm">
                     <MaterialCommunityIcons name="account-circle" size={80} color={colors.primary} />
-                    <Text className="text-2xl font-bold text-slate-800">{doctor.name}</Text>
-                    <Text className="text-teal-600 font-bold mb-1">{doctor.specialization}</Text>
+                    <Text className="text-2xl font-bold text-slate-800">{receptionist.name}</Text>
+                    <Text className="text-teal-600 font-bold mb-1">Receptionist</Text>
 
                     <View className="flex-row items-center mb-4 bg-slate-50 px-3 py-1 rounded-full">
                         <MaterialCommunityIcons name="at" size={14} color={colors.mutedText} />
-                        <Text className="text-xs text-slate-500 font-medium ml-1">{doctor.username}</Text>
+                        <Text className="text-xs text-slate-500 font-medium ml-1">{receptionist.username}</Text>
                     </View>
 
                     <View className="flex-row border-t border-slate-50 w-full pt-4 justify-around">
                         <View className="items-center">
-                            <Text className="text-xs text-slate-400">Experience</Text>
-                            <Text className="font-bold">{doctor.experience_years ?? 0} Years</Text>
+                            <Text className="text-xs text-slate-400">Joined</Text>
+                            <Text className="font-bold">{createdAt}</Text>
                         </View>
                         <View className="items-center">
                             <Text className="text-xs text-slate-400">Status</Text>
-                            <Text className="font-bold text-green-600 uppercase text-[10px]">
-                                {doctor.availability_status || 'Active'}
-                            </Text>
+                            <Text className="font-bold text-green-600 uppercase text-[10px]">Active</Text>
                         </View>
                     </View>
-                </View>
-
-                <View className="bg-white p-6 rounded-[32px] border border-slate-100 mb-6">
-                    <View className="flex-row items-center mb-4">
-                        <MaterialCommunityIcons name="calendar-clock" size={22} color={colors.primary} />
-                        <Text className="font-bold text-slate-800 ml-2 text-lg">Weekly Schedule</Text>
-                    </View>
-
-                    {doctor.schedule && Object.keys(doctor.schedule).length > 0 ? (
-                        Object.entries(doctor.schedule).map(([day, time]: [string, string]) => (
-                            <View key={day} className="flex-row justify-between py-3 border-b border-slate-50">
-                                <Text className="font-bold text-slate-600">{day}</Text>
-                                <Text className="text-slate-500 text-sm">{time}</Text>
-                            </View>
-                        ))
-                    ) : (
-                        <Text className="text-slate-400 text-sm">No schedule set</Text>
-                    )}
                 </View>
 
                 <View className="bg-white p-6 rounded-[32px] border border-slate-100 mb-6">
                     <Text className="font-bold text-slate-800 mb-4 text-lg">Contact Information</Text>
-                    <InfoRow icon="email-outline" label="Email" text={doctor.email} />
-                    <InfoRow icon="phone-outline" label="Phone" text={doctor.phone ?? '—'} />
+                    <InfoRow icon="email-outline" label="Email" text={receptionist.email} />
+                    <InfoRow icon="phone-outline" label="Phone" text={receptionist.phone ?? '—'} />
                 </View>
 
                 <TouchableOpacity
@@ -255,7 +239,7 @@ export default function DoctorDetails() {
                 >
                     <MaterialCommunityIcons name="trash-can-outline" size={22} color="#EF4444" />
                     <Text className="ml-2 text-red-500 font-bold text-base">
-                        {deleting ? 'Deleting...' : 'Delete Doctor Permanently'}
+                        {deleting ? 'Deleting...' : 'Delete Receptionist Permanently'}
                     </Text>
                 </TouchableOpacity>
             </ScrollView>

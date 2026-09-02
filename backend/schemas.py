@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Dict
 import datetime
 
 
@@ -23,21 +23,66 @@ class DoctorCreate(BaseModel):
     specialization: Optional[str] = None
     experience_years: Optional[int] = None
     availability_status: Optional[str] = "available"
+    schedule: Optional[Dict[str, str]] = None
 
 
 class ReceptionistCreate(BaseModel):
     user_data: UserCreate
 
 
+class ReceptionistUpdate(BaseModel):
+    name: Optional[str] = None
+    email: Optional[str] = None
+    username: Optional[str] = None
+    phone: Optional[str] = None
+    password: Optional[str] = None
+
+
+class ReceptionistResponse(BaseModel):
+    receptionist_id: int
+    user_id: int
+    name: str
+    email: str
+    username: str
+    phone: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class ReceptionistDetailResponse(BaseModel):
+    receptionist_id: int
+    user_id: int
+    name: str
+    email: str
+    username: str
+    phone: Optional[str] = None
+    created_at: Optional[datetime.datetime] = None
+
+
 class DoctorResponse(BaseModel):
     doctor_id: int
     user_id: int
+    name: str
     specialization: Optional[str]
     experience_years: Optional[int]
     availability_status: Optional[str]
 
     class Config:
         from_attributes = True
+
+
+class DoctorDetailResponse(BaseModel):
+    doctor_id: int
+    user_id: int
+    name: str
+    username: str
+    email: str
+    phone: Optional[str] = None
+    specialization: Optional[str]
+    experience_years: Optional[int]
+    availability_status: Optional[str]
+    schedule: Dict[str, str] = {}
 
 
 # ── Audio Processing Schemas ─────────────────────────────────

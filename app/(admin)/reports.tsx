@@ -20,7 +20,11 @@ export default function ReportsScreen() {
 
   return (
     <SafeAreaView style={{ backgroundColor: colors.background }} className="flex-1">
-      <ScrollView showsVerticalScrollIndicator={false} className="px-6 pt-4">
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        className="px-6 pt-4"
+        contentContainerStyle={{ paddingBottom: 32 }}
+      >
         
         {/* Header */}
         <View className="mb-8">

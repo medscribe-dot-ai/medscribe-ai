@@ -66,7 +66,11 @@ export default function AdminDashboard() {
         <SafeAreaView style={{ backgroundColor: colors.background }} className="flex-1">
             <StatusBar style="dark" />
 
-            <ScrollView showsVerticalScrollIndicator={false} className="px-6">
+            <ScrollView
+                showsVerticalScrollIndicator={false}
+                className="px-6"
+                contentContainerStyle={{ paddingBottom: 32 }}
+            >
 
                 {/* 1. Header Section */}
                 <View className="flex-row items-center justify-between mt-6 mb-8">
@@ -180,15 +184,16 @@ export default function AdminDashboard() {
                             icon="card-account-details-outline"
                             title="Add New Receptionist"
                             onPress={() => router.push({
-                                pathname: "/(admin)/add_receptionist"
-                            })}
+                                pathname: "/(admin)/receptionist/add",
+                                params: { editData: null }
+                            } as any)}
                         />
                         <View className="h-[0.5px] mx-5" style={{ backgroundColor: colors.accent }} />
                         
                         <ActionItem
                             icon="shield-account-outline"
-                            title="Manage Staff"
-                            onPress={() => { }}
+                            title="Manage Receptionists"
+                            onPress={() => router.push('/(admin)/receptionist' as any)}
                         />
                         <View className="h-[0.5px] mx-5" style={{ backgroundColor: colors.accent }} />
                         

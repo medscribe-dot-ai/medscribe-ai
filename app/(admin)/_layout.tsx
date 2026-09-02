@@ -25,20 +25,15 @@ export default function AdminLayout() {
                 tabBarStyle: {
                     backgroundColor: 'white',
                     borderTopColor: colors.accent,
-                    // Height ko 85 tak barhaya taake buttons ke liye clear space mil jaye
-                    height: Platform.OS === 'ios' ? 88 : 85,
-                    paddingTop: 10,
-                    // Android buttons ke liye kafi sari jagah niche chor di
-                    paddingBottom: Platform.OS === 'ios' ? insets.bottom : 25,
+                    borderTopWidth: 1,
+                    height: Platform.OS === 'ios' ? 60 + insets.bottom : 64 + insets.bottom,
+                    paddingTop: 8,
+                    paddingBottom: Math.max(insets.bottom, 12),
                     elevation: 30,
                     shadowColor: '#000',
                     shadowOffset: { width: 0, height: -4 },
                     shadowOpacity: 0.1,
                     shadowRadius: 10,
-                    position: 'absolute', // Isse layout overlap issues aksar hal ho jate hain
-                    bottom: 0,
-                    left: 0,
-                    right: 0,
                 },
                 tabBarItemStyle: {
                     // Content ko center se thoda upar rakha
@@ -144,6 +139,10 @@ export default function AdminLayout() {
             <Tabs.Screen name="doctor/[id]" options={{ href: null }} />
             <Tabs.Screen name="patients/index" options={{ href: null }} />
             <Tabs.Screen name="patients/[id]" options={{ href: null }} />
+            <Tabs.Screen name="receptionist/index" options={{ href: null }} />
+            <Tabs.Screen name="receptionist/add" options={{ href: null }} />
+            <Tabs.Screen name="receptionist/[id]" options={{ href: null }} />
+            <Tabs.Screen name="(receptionist)" options={{ href: null }} />
         </Tabs>
     );
 }

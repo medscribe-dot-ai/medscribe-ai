@@ -16,7 +16,7 @@ import {
   View,
 } from 'react-native';
 
-const BACKEND_URL = 'http://192.168.100.4:8000';
+const BACKEND_URL = 'http://192.168.80.145:8000';
 
 // ─────────────────────────────────────────────────────────────
 //   TYPES

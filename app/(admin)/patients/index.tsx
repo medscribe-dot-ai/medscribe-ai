@@ -141,7 +141,7 @@ export default function AdminPatientsScreen() {
       </View>
 
       {/* Patients List */}
-      <ScrollView style={{ paddingHorizontal: 16, marginTop: 16 }} contentContainerStyle={{ paddingBottom: 24 }}>
+      <ScrollView style={{ paddingHorizontal: 16, marginTop: 16 }} contentContainerStyle={{ paddingBottom: 32 }}>
         {filtered.map((p) => (
           <Pressable key={p.id} onPress={() => router.push({ pathname: "/(admin)/patients/[id]", params: { id: p.id } })}>
             <PatientRow patient={p} />

@@ -29,7 +29,11 @@ export default function AdminProfile() {
                 <Text className="text-xl font-bold ml-2">Admin Profile</Text>
             </View>
 
-            <ScrollView showsVerticalScrollIndicator={false} className="px-6">
+            <ScrollView
+                showsVerticalScrollIndicator={false}
+                className="px-6"
+                contentContainerStyle={{ paddingBottom: 32 }}
+            >
 
                 {/* Profile Card */}
                 <View className="items-center mt-4 mb-8">

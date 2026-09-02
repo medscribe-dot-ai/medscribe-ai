@@ -3,9 +3,23 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import { Alert, FlatList, KeyboardAvoidingView, Modal, Platform, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import Constants from 'expo-constants';
 import { colors } from '../../../src/theme/colors';
 
-const API_URL = "https://medscribeai-pzqu.onrender.com";
+const FALLBACK_API_URL = 'https://medscribeai-pzqu.onrender.com';
+
+function resolveApiUrl(): string {
+    const hostUri = Constants.expoConfig?.hostUri;
+    if (__DEV__ && hostUri) {
+        const host = hostUri.split(':')[0];
+        if (host) return `http://${host}:8000`;
+    }
+
+    const envUrl = process.env.EXPO_PUBLIC_API_URL?.trim();
+    if (envUrl) return envUrl.replace(/\/$/, '');
+
+    return FALLBACK_API_URL;
+}
 const SPECIALIZATIONS = ["Cardiologist", "Dermatologist", "Neurologist", "Pediatrician", "General Physician", "Surgeon"];
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -15,6 +29,14 @@ const USERNAME_REGEX = /^[a-z0-9_]{3,20}$/;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PHONE_REGEX = /^(\+92|0)[0-9]{10}$/; // e.g. 03001234567 or +923001234567
 const TIME_RANGE_REGEX = /^(0?[1-9]|1[0-2]):[0-5][0-9]\s?(AM|PM)\s*-\s*(0?[1-9]|1[0-2]):[0-5][0-9]\s?(AM|PM)$/i;
+
+const stripDoctorPrefix = (name: string) =>
+    name.trim().replace(/^dr\.?\s+/i, '').trim();
+
+const formatDoctorName = (name: string) => {
+    const cleaned = stripDoctorPrefix(name);
+    return cleaned ? `Dr. ${cleaned}` : '';
+};
 
 type Errors = {
     name?: string;
@@ -52,7 +74,7 @@ export default function AddDoctor() {
     useEffect(() => {
         const wakeUpServer = async () => {
             try {
-                await fetch(`${API_URL}/doctors`);
+                await fetch(`${resolveApiUrl()}/doctors`);
                 setServerReady(true);
             } catch (e) {
                 setServerReady(false);
@@ -66,7 +88,10 @@ export default function AddDoctor() {
             if (editData) {
                 try {
                     const data = JSON.parse(editData as string);
-                    setForm(data);
+                    setForm({
+                        ...data,
+                        name: stripDoctorPrefix(data.name || ''),
+                    });
                 } catch (e) {
                     console.error("Failed to parse editData", e);
                 }
@@ -197,7 +222,7 @@ export default function AddDoctor() {
         try {
             const payload = {
                 user_data: {
-                    name: form.name.trim(),
+                    name: formatDoctorName(form.name),
                     username: form.username.trim().toLowerCase(),
                     email: form.email.trim().toLowerCase(),
                     phone: form.phone.trim(),
@@ -211,7 +236,7 @@ export default function AddDoctor() {
 
             console.log("Sending payload:", JSON.stringify(payload));
 
-            const response = await fetch(`${API_URL}/admin/add-doctor`, {
+            const response = await fetch(`${resolveApiUrl()}/admin/add-doctor`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -291,21 +316,37 @@ export default function AddDoctor() {
                     </View>
                 </View>
 
-                <ScrollView showsVerticalScrollIndicator={false} className="px-6 pt-4">
+                <ScrollView
+                    showsVerticalScrollIndicator={false}
+                    className="px-6 pt-4"
+                    contentContainerStyle={{ paddingBottom: 32 }}
+                >
                     <View className="bg-white p-6 rounded-[32px] border border-slate-100 gap-y-5">
 
-                        <FormInput
-                            label="Full Name"
-                            icon="account-circle-outline"
-                            placeholder="Dr. Sarah Ahmed"
-                            value={form.name}
-                            error={errors.name}
-                            onChange={(v: string) => {
-                                setForm({ ...form, name: v });
-                                if (errors.name) setErrors({ ...errors, name: undefined });
-                            }}
-                            onBlur={() => setErrors({ ...errors, name: validateName(form.name) })}
-                        />
+                        <View>
+                            <Text className="text-[10px] font-bold mb-2 ml-1 uppercase tracking-widest text-slate-400">Full Name</Text>
+                            <View className="relative flex-row items-center bg-slate-50 rounded-2xl border border-slate-100" style={{ borderColor: errors.name ? '#EF4444' : undefined }}>
+                                <View className="absolute left-4 z-10">
+                                    <MaterialCommunityIcons name="account-circle-outline" size={20} color={colors.primary} />
+                                </View>
+                                <Text className="pl-12 pr-1 py-4 font-bold text-slate-700">Dr.</Text>
+                                <TextInput
+                                    value={form.name}
+                                    onChangeText={(v: string) => {
+                                        setForm({ ...form, name: stripDoctorPrefix(v) });
+                                        if (errors.name) setErrors({ ...errors, name: undefined });
+                                    }}
+                                    onBlur={() => setErrors({ ...errors, name: validateName(form.name) })}
+                                    placeholder="Sarah Ahmed"
+                                    placeholderTextColor="#CBD5E1"
+                                    className="flex-1 py-4 pr-4 text-slate-800"
+                                    autoCapitalize="words"
+                                />
+                            </View>
+                            {!!errors.name && (
+                                <Text className="text-[11px] text-red-500 mt-1 ml-1">{errors.name}</Text>
+                            )}
+                        </View>
 
                         <View>
                             <Text className="text-[10px] font-bold mb-2 ml-1 uppercase tracking-widest text-slate-400">Specialization</Text>

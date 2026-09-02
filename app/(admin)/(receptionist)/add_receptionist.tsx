@@ -183,7 +183,11 @@ export default function AddReceptionist() {
                 </Text>
             </View>
 
-            <ScrollView showsVerticalScrollIndicator={false} className="px-6 mt-6">
+            <ScrollView
+                showsVerticalScrollIndicator={false}
+                className="px-6 mt-6"
+                contentContainerStyle={{ paddingBottom: 32 }}
+            >
                 <View className="bg-white rounded-[32px] p-6 border shadow-xs mb-10" style={{ borderColor: colors.accent }}>
 
                     <Text style={{ color: colors.primary }} className="text-sm font-bold uppercase mb-6 tracking-wide">

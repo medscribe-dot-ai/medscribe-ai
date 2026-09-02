@@ -2,7 +2,7 @@ from fastapi import FastAPI, Depends, HTTPException, status, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from typing import List, Optional
-import httpx, os, datetime, re
+import httpx, os, datetime, re, json
 from database import engine, get_db, Base
 import models, schemas
 from auth import get_password_hash, verify_password
@@ -145,11 +145,19 @@ def add_doctor(doctor_in: schemas.DoctorCreate, db: Session = Depends(get_db)):
         user_id=new_user.user_id,
         specialization=doctor_in.specialization,
         experience_years=doctor_in.experience_years,
-        availability_status=doctor_in.availability_status
+        availability_status=doctor_in.availability_status,
     )
     db.add(new_doctor)
     db.commit()
     db.refresh(new_doctor)
+
+    if doctor_in.schedule:
+        db.add(models.MedicalDocument(
+            title=f"doctor_schedule_{new_doctor.doctor_id}",
+            content=json.dumps(doctor_in.schedule),
+            source="doctor_schedule",
+        ))
+        db.commit()
 
     return {
         "status":    "success",
@@ -166,6 +174,12 @@ def add_receptionist(recept_in: schemas.ReceptionistCreate, db: Session = Depend
     ).first()
     if existing_user:
         raise HTTPException(status_code=400, detail="Email already registered")
+
+    existing_username = db.query(models.User).filter(
+        models.User.username == recept_in.user_data.username
+    ).first()
+    if existing_username:
+        raise HTTPException(status_code=400, detail="Username already taken")
 
     hashed_pwd = get_password_hash(recept_in.user_data.password)
 
@@ -184,13 +198,240 @@ def add_receptionist(recept_in: schemas.ReceptionistCreate, db: Session = Depend
     new_recept = models.Receptionist(user_id=new_user.user_id)
     db.add(new_recept)
     db.commit()
+    db.refresh(new_recept)
 
-    return {"status": "success", "message": "Receptionist profile created successfully"}
+    return {
+        "status": "success",
+        "message": "Receptionist profile created successfully",
+        "receptionist_id": new_recept.receptionist_id,
+        "user_id": new_user.user_id,
+    }
+
+
+@app.get("/receptionists", response_model=List[schemas.ReceptionistResponse])
+def get_receptionists(db: Session = Depends(get_db)):
+    receptionists = db.query(models.Receptionist).all()
+    return [
+        schemas.ReceptionistResponse(
+            receptionist_id=r.receptionist_id,
+            user_id=r.user_id,
+            name=r.user.name if r.user else "",
+            email=r.user.email if r.user else "",
+            username=r.user.username if r.user else "",
+            phone=r.user.phone if r.user else None,
+        )
+        for r in receptionists
+    ]
+
+
+@app.get("/receptionists/{receptionist_id}", response_model=schemas.ReceptionistDetailResponse)
+def get_receptionist(receptionist_id: int, db: Session = Depends(get_db)):
+    receptionist = db.query(models.Receptionist).filter(
+        models.Receptionist.receptionist_id == receptionist_id
+    ).first()
+
+    if not receptionist or not receptionist.user:
+        raise HTTPException(status_code=404, detail="Receptionist not found")
+
+    return schemas.ReceptionistDetailResponse(
+        receptionist_id=receptionist.receptionist_id,
+        user_id=receptionist.user_id,
+        name=receptionist.user.name,
+        email=receptionist.user.email,
+        username=receptionist.user.username,
+        phone=receptionist.user.phone,
+        created_at=receptionist.user.created_at,
+    )
+
+
+@app.put("/receptionists/{receptionist_id}", response_model=schemas.ReceptionistDetailResponse)
+def update_receptionist(
+    receptionist_id: int,
+    recept_in: schemas.ReceptionistUpdate,
+    db: Session = Depends(get_db),
+):
+    receptionist = db.query(models.Receptionist).filter(
+        models.Receptionist.receptionist_id == receptionist_id
+    ).first()
+
+    if not receptionist or not receptionist.user:
+        raise HTTPException(status_code=404, detail="Receptionist not found")
+
+    user = receptionist.user
+
+    if recept_in.email and recept_in.email != user.email:
+        existing_email = db.query(models.User).filter(
+            models.User.email == recept_in.email,
+            models.User.user_id != user.user_id,
+        ).first()
+        if existing_email:
+            raise HTTPException(status_code=400, detail="Email already registered")
+        user.email = recept_in.email
+
+    if recept_in.username and recept_in.username != user.username:
+        existing_username = db.query(models.User).filter(
+            models.User.username == recept_in.username,
+            models.User.user_id != user.user_id,
+        ).first()
+        if existing_username:
+            raise HTTPException(status_code=400, detail="Username already taken")
+        user.username = recept_in.username
+
+    if recept_in.name is not None:
+        user.name = recept_in.name
+    if recept_in.phone is not None:
+        user.phone = recept_in.phone
+    if recept_in.password:
+        user.password_hash = get_password_hash(recept_in.password)
+
+    db.commit()
+    db.refresh(user)
+
+    return schemas.ReceptionistDetailResponse(
+        receptionist_id=receptionist.receptionist_id,
+        user_id=user.user_id,
+        name=user.name,
+        email=user.email,
+        username=user.username,
+        phone=user.phone,
+        created_at=user.created_at,
+    )
+
+
+@app.delete("/receptionists/{receptionist_id}")
+def delete_receptionist(receptionist_id: int, db: Session = Depends(get_db)):
+    receptionist = db.query(models.Receptionist).filter(
+        models.Receptionist.receptionist_id == receptionist_id
+    ).first()
+
+    if not receptionist:
+        raise HTTPException(status_code=404, detail="Receptionist not found")
+
+    user_id = receptionist.user_id
+
+    db.query(models.Patient).filter(
+        models.Patient.registered_by == receptionist_id
+    ).update({models.Patient.registered_by: None}, synchronize_session=False)
+
+    db.delete(receptionist)
+
+    user = db.query(models.User).filter(models.User.user_id == user_id).first()
+    if user:
+        db.delete(user)
+
+    db.commit()
+
+    return {
+        "status": "success",
+        "message": "Receptionist deleted permanently",
+        "receptionist_id": receptionist_id,
+    }
 
 
 @app.get("/doctors", response_model=List[schemas.DoctorResponse])
 def get_doctors(db: Session = Depends(get_db)):
-    return db.query(models.Doctor).all()
+    doctors = db.query(models.Doctor).all()
+    return [
+        schemas.DoctorResponse(
+            doctor_id=d.doctor_id,
+            user_id=d.user_id,
+            name=d.user.name if d.user else "",
+            specialization=d.specialization,
+            experience_years=d.experience_years,
+            availability_status=d.availability_status,
+        )
+        for d in doctors
+    ]
+
+
+@app.get("/doctors/{doctor_id}", response_model=schemas.DoctorDetailResponse)
+def get_doctor(doctor_id: int, db: Session = Depends(get_db)):
+    doctor = db.query(models.Doctor).filter(
+        models.Doctor.doctor_id == doctor_id
+    ).first()
+
+    if not doctor or not doctor.user:
+        raise HTTPException(status_code=404, detail="Doctor not found")
+
+    schedule: dict = {}
+    schedule_doc = db.query(models.MedicalDocument).filter(
+        models.MedicalDocument.title == f"doctor_schedule_{doctor_id}"
+    ).first()
+    if schedule_doc and schedule_doc.content:
+        try:
+            schedule = json.loads(schedule_doc.content)
+        except json.JSONDecodeError:
+            schedule = {}
+
+    return schemas.DoctorDetailResponse(
+        doctor_id=doctor.doctor_id,
+        user_id=doctor.user_id,
+        name=doctor.user.name,
+        username=doctor.user.username,
+        email=doctor.user.email,
+        phone=doctor.user.phone,
+        specialization=doctor.specialization,
+        experience_years=doctor.experience_years,
+        availability_status=doctor.availability_status,
+        schedule=schedule,
+    )
+
+
+@app.delete("/doctors/{doctor_id}")
+def delete_doctor(doctor_id: int, db: Session = Depends(get_db)):
+    doctor = db.query(models.Doctor).filter(
+        models.Doctor.doctor_id == doctor_id
+    ).first()
+
+    if not doctor:
+        raise HTTPException(status_code=404, detail="Doctor not found")
+
+    user_id = doctor.user_id
+
+    db.query(models.MedicalDocument).filter(
+        models.MedicalDocument.title == f"doctor_schedule_{doctor_id}"
+    ).delete(synchronize_session=False)
+
+    db.query(models.Patient).filter(
+        models.Patient.assigned_doctor_id == doctor_id
+    ).update({models.Patient.assigned_doctor_id: None}, synchronize_session=False)
+
+    consultations = db.query(models.Consultation).filter(
+        models.Consultation.doctor_id == doctor_id
+    ).all()
+    for consultation in consultations:
+        if consultation.transcription:
+            db.delete(consultation.transcription)
+        if consultation.soap_report:
+            db.delete(consultation.soap_report)
+        db.delete(consultation)
+
+    appointments = db.query(models.Appointment).filter(
+        models.Appointment.doctor_id == doctor_id
+    ).all()
+    for appointment in appointments:
+        if appointment.consultation:
+            linked = appointment.consultation
+            if linked.transcription:
+                db.delete(linked.transcription)
+            if linked.soap_report:
+                db.delete(linked.soap_report)
+            db.delete(linked)
+        db.delete(appointment)
+
+    db.delete(doctor)
+
+    user = db.query(models.User).filter(models.User.user_id == user_id).first()
+    if user:
+        db.delete(user)
+
+    db.commit()
+
+    return {
+        "status": "success",
+        "message": "Doctor deleted permanently",
+        "doctor_id": doctor_id,
+    }
 
 
 # ====================== HELPER: Get Latest Colab URL ======================
