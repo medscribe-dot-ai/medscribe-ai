@@ -22,7 +22,12 @@ const RegisterPatient = () => {
 
   // Success modal state
   const [showSuccess, setShowSuccess] = useState(false);
-  const [registeredPatient, setRegisteredPatient] = useState<{ name: string; patient_code: string } | null>(null);
+  const [registeredPatient, setRegisteredPatient] = useState<{
+    name: string;
+    patient_code: string;
+    username: string;
+    temp_password: string;
+  } | null>(null);
 
   const validate = () => {
     const newErrors: { [key: string]: string } = {};
@@ -75,6 +80,8 @@ const RegisterPatient = () => {
       setRegisteredPatient({
         name: response.data.name,
         patient_code: response.data.patient_code,
+        username: response.data.username,
+        temp_password: response.data.temp_password,
       });
       setShowSuccess(true);
     } catch (error: any) {
@@ -267,6 +274,29 @@ const RegisterPatient = () => {
             <Text className="text-sm font-semibold text-slate-600 mt-4">
               Consultation Fee: <Text className="font-bold text-slate-900">PKR 1000</Text>
             </Text>
+
+            {/* LOGIN CREDENTIALS */}
+            {registeredPatient?.username ? (
+              <View className="w-full mt-5 bg-slate-50 border border-slate-200 rounded-2xl p-4">
+                <View className="flex-row items-center gap-x-2 mb-3">
+                  <MaterialCommunityIcons name="key-outline" size={16} color="#0D9488" />
+                  <Text className="text-xs font-bold text-slate-700 uppercase tracking-widest">Patient Login Credentials</Text>
+                </View>
+                <View className="mb-2">
+                  <Text className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Username</Text>
+                  <View className="bg-white border border-slate-200 px-3 py-2 rounded-xl">
+                    <Text className="text-sm font-mono font-bold text-slate-800" selectable>{registeredPatient.username}</Text>
+                  </View>
+                </View>
+                <View>
+                  <Text className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Temporary Password</Text>
+                  <View className="bg-white border border-slate-200 px-3 py-2 rounded-xl">
+                    <Text className="text-sm font-mono font-bold text-teal-700" selectable>{registeredPatient.temp_password}</Text>
+                  </View>
+                </View>
+                <Text className="text-[10px] text-slate-400 mt-2 text-center">Share these credentials with the patient. They can log in and change their password.</Text>
+              </View>
+            ) : null}
 
             {/* ACTIONS */}
             <View className="w-full gap-y-3 mt-7">

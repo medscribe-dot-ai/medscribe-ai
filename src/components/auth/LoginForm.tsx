@@ -8,18 +8,19 @@ import { colors } from '../../theme/colors';
 
 const API_URL = "https://medscribeai-pzqu.onrender.com";
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const USERNAME_REGEX = /^[a-zA-Z0-9_@.\-]{3,100}$/;
 const MIN_PASSWORD_LENGTH = 6;
 
 const LoginForm = () => {
   const router = useRouter();
-  const [email, setEmail] = useState('');
+  const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [serverStatus, setServerStatus] = useState('checking');
-  // checking | ready | offline
+    // checking | ready | offline
 
-  const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
+  const [errors, setErrors] = useState<{ identifier?: string; password?: string }>({});
 
   // Wake up Render server when login screen opens
   useEffect(() => {
@@ -36,13 +37,13 @@ const LoginForm = () => {
   }, []);
 
   const validate = () => {
-    const newErrors: { email?: string; password?: string } = {};
-    const trimmedEmail = email.trim();
+    const newErrors: { identifier?: string; password?: string } = {};
+    const trimmedIdentifier = identifier.trim();
 
-    if (!trimmedEmail) {
-      newErrors.email = "Email is required.";
-    } else if (!EMAIL_REGEX.test(trimmedEmail)) {
-      newErrors.email = "Enter a valid email address.";
+    if (!trimmedIdentifier) {
+      newErrors.identifier = "Email or username is required.";
+    } else if (!EMAIL_REGEX.test(trimmedIdentifier) && !USERNAME_REGEX.test(trimmedIdentifier)) {
+      newErrors.identifier = "Enter a valid email address or username.";
     }
 
     if (!password) {
@@ -74,7 +75,7 @@ const LoginForm = () => {
 
     try {
       const response = await axios.post(`${API_URL}/login`, {
-        email: email.trim().toLowerCase(),
+        email: identifier.trim(),   // backend accepts email OR username in this field
         password: password
       });
 
@@ -93,6 +94,9 @@ const LoginForm = () => {
           router.replace('/(doctor)/dashboard');
         } else if (role === 'receptionist') {
           router.replace('/(receptionist)/dashboard');
+        } else if (role === 'patient') {
+          // TODO: router.replace('/(patient)/dashboard') — route not yet created
+          Alert.alert("Login Successful", "Patient portal is being set up. Your credentials are valid.");
         } else {
           Alert.alert("Access Denied", "Unauthorized role.");
         }
@@ -152,29 +156,29 @@ const LoginForm = () => {
         </View>
       )}
 
-      {/* Email Input */}
+      {/* Email / Username Input */}
       <View>
         <View className="relative">
           <TextInput
-            placeholder="Email Address"
+            placeholder="Email or Username"
             placeholderTextColor={colors.mutedText}
-            value={email}
+            value={identifier}
             onChangeText={(val) => {
-              setEmail(val);
-              if (errors.email) setErrors((prev) => ({ ...prev, email: undefined }));
+              setIdentifier(val);
+              if (errors.identifier) setErrors((prev) => ({ ...prev, identifier: undefined }));
             }}
-            style={{ borderColor: errors.email ? '#EF4444' : colors.accent, color: colors.darkText }}
+            style={{ borderColor: errors.identifier ? '#EF4444' : colors.accent, color: colors.darkText }}
             className="bg-white p-4 pl-12 rounded-2xl border"
             autoCapitalize="none"
             autoCorrect={false}
-            keyboardType="email-address"
+            keyboardType="default"
           />
           <View className="absolute left-4 top-4">
-            <MaterialCommunityIcons name="email-outline" size={20} color={colors.mutedText} />
+            <MaterialCommunityIcons name="account-outline" size={20} color={colors.mutedText} />
           </View>
         </View>
-        {errors.email && (
-          <Text className="text-red-500 text-xs mt-1 ml-1">{errors.email}</Text>
+        {errors.identifier && (
+          <Text className="text-red-500 text-xs mt-1 ml-1">{errors.identifier}</Text>
         )}
       </View>
 

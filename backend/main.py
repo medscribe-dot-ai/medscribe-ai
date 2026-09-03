@@ -94,9 +94,12 @@ def parse_soap_sections(soap_text: str) -> dict:
 
 @app.post("/login")
 def login(request: schemas.LoginRequest, db: Session = Depends(get_db)):
-    user = db.query(models.User).filter(models.User.email == request.email).first()
+    # Accept either email or username in the same field
+    user = db.query(models.User).filter(
+        (models.User.email == request.email) | (models.User.username == request.email)
+    ).first()
     if not user:
-        raise HTTPException(status_code=401, detail="Email not registered")
+        raise HTTPException(status_code=401, detail="Invalid email/username or password")
     if not verify_password(request.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Incorrect password")
 
@@ -758,6 +761,8 @@ def get_doctor_consultations(doctor_id: int, db: Session = Depends(get_db)):
 
 @app.post("/receptionist/register-patient", response_model=schemas.PatientResponse)
 def register_patient(patient_in: schemas.PatientRegister, db: Session = Depends(get_db)):
+    import secrets, string
+
     # Generate patient_code like P-2024-016 based on year + current count
     year = datetime.datetime.utcnow().year
     count_this_year = db.query(models.Patient).filter(
@@ -767,22 +772,66 @@ def register_patient(patient_in: schemas.PatientRegister, db: Session = Depends(
 
     status_value = "assigned" if patient_in.assigned_doctor_id else "waiting"
 
-    new_patient = models.Patient(
-        name=patient_in.name,
-        phone=patient_in.phone,
-        patient_code=new_code,
-        age=patient_in.age,
-        gender=patient_in.gender,
-        marital_status=patient_in.marital_status,
-        department=patient_in.department,
-        assigned_doctor_id=patient_in.assigned_doctor_id,
-        registered_by=patient_in.registered_by,
-        status=status_value,
-    )
-    db.add(new_patient)
-    db.commit()
-    db.refresh(new_patient)
-    return new_patient
+    # ── Generate unique username: pat_<code_without_dashes> e.g. pat_P2024001 ──
+    base_username = "pat_" + new_code.replace("-", "")
+    username = base_username
+    suffix = 1
+    while db.query(models.User).filter(models.User.username == username).first():
+        username = f"{base_username}_{suffix}"
+        suffix += 1
+
+    # ── Generate secure 10-char temporary password ──────────────────────────
+    alphabet = string.ascii_letters + string.digits + "!@#$%"
+    temp_password = "".join(secrets.choice(alphabet) for _ in range(10))
+    password_hash = get_password_hash(temp_password)
+
+    # ── Determine email (optional) ───────────────────────────────────────────
+    email = patient_in.email if patient_in.email else f"{username}@medscribe.local"
+
+    # ── Single transaction: create User then Patient ─────────────────────────
+    try:
+        new_user = models.User(
+            name=patient_in.name,
+            username=username,
+            email=email,
+            password_hash=password_hash,
+            phone=patient_in.phone,
+            role="patient",
+        )
+        db.add(new_user)
+        db.flush()  # get new_user.user_id without committing yet
+
+        new_patient = models.Patient(
+            user_id=new_user.user_id,
+            name=patient_in.name,
+            phone=patient_in.phone,
+            patient_code=new_code,
+            age=patient_in.age,
+            gender=patient_in.gender,
+            marital_status=patient_in.marital_status,
+            department=patient_in.department,
+            assigned_doctor_id=patient_in.assigned_doctor_id,
+            registered_by=patient_in.registered_by,
+            status=status_value,
+        )
+        db.add(new_patient)
+        db.commit()
+        db.refresh(new_patient)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Registration failed: {str(e)}")
+
+    # Return patient data + plaintext credentials (one-time, never stored)
+    return {
+        "patient_id": new_patient.patient_id,
+        "name": new_patient.name,
+        "patient_code": new_patient.patient_code,
+        "department": new_patient.department,
+        "status": new_patient.status,
+        "created_at": new_patient.created_at,
+        "username": username,
+        "temp_password": temp_password,
+    }
 
 
 @app.get("/patients", response_model=List[schemas.PatientListResponse])

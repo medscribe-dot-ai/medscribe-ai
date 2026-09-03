@@ -130,6 +130,7 @@ class ApproveSOAPRequest(BaseModel):
 class PatientRegister(BaseModel):
     name: str
     phone: Optional[str] = None
+    email: Optional[str] = None
     age: Optional[int] = None
     gender: Optional[str] = None
     marital_status: Optional[str] = None
@@ -145,6 +146,9 @@ class PatientResponse(BaseModel):
     department: Optional[str]
     status: Optional[str]
     created_at: Optional[datetime.datetime]
+    # Credentials returned only at registration time
+    username: Optional[str] = None
+    temp_password: Optional[str] = None
 
     class Config:
         from_attributes = True
