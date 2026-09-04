@@ -19,13 +19,13 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { getPatientReport } from '@/src/services/doctorService';
+import { getPatientReport, PatientReport as PatientReportData } from '@/src/services/doctorService';
 import { colors } from '@/src/theme/colors';
 
 export default function PatientReport() {
   const { id } = useLocalSearchParams();
   const router = useRouter();
-  const [patient, setPatient] = useState<any>(null);
+  const [patient, setPatient] = useState<PatientReportData | null>(null);
   const [loading, setLoading] = useState(true);
   const [savedAudioUri, setSavedAudioUri] = useState<string | null>(null);
 
@@ -42,8 +42,8 @@ export default function PatientReport() {
       return;
     }
     getPatientReport(id as string)
-      .then((data) => setPatient(data))
-      .catch((err) => {
+      .then((data: PatientReportData | null) => setPatient(data))
+      .catch((err: unknown) => {
         console.log('Patient report error:', err);
         Alert.alert('Error', err instanceof Error ? err.message : String(err));
       })
