@@ -1,43 +1,91 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { ActivityIndicator, Alert, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 // Directory based imports
 import { StatCard } from '../../src/components/ui/StatCard';
+import { API_URL } from '../../src/config/api';
 import { colors } from '../../src/theme/colors';
-import { storage } from '../../src/utils/storage';
+
+const FETCH_TIMEOUT_MS = 15000;
+
+// Same specializations used in Add Doctor — these are the hospital departments
+const DEPARTMENTS = [
+    'Cardiologist',
+    'Dermatologist',
+    'Neurologist',
+    'Pediatrician',
+    'General Physician',
+    'Surgeon',
+];
 
 export default function AdminDashboard() {
     const router = useRouter();
     const [loading, setLoading] = useState(true);
     const [stats, setStats] = useState({
         totalDoctors: 0,
-        totalPatients: 124,
-        avgConsultation: '12m',
-        activeDepartments: 5
+        totalReceptionists: 0,
+        totalPatients: 0,
+        totalDepartments: 0,
     });
 
-    useEffect(() => {
-        loadDashboardData();
-    }, []);
+    useFocusEffect(
+        useCallback(() => {
+            let isActive = true;
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
-    const loadDashboardData = async () => {
-        setLoading(true);
-        try {
-            const doctors = await storage.getDoctors();
-            setStats(prev => ({
-                ...prev,
-                totalDoctors: doctors.length,
-            }));
-        } catch (error) {
-            console.error("Dashboard load error:", error);
-        } finally {
-            setLoading(false);
-        }
-    };
+            const loadDashboardData = async () => {
+                setLoading(true);
+                try {
+                    const apiUrl = API_URL;
+                    const [doctorsRes, receptionistsRes] = await Promise.all([
+                        fetch(`${apiUrl}/doctors`, { signal: controller.signal }),
+                        fetch(`${apiUrl}/receptionists`, { signal: controller.signal }),
+                    ]);
+
+                    const doctors = doctorsRes.ok ? await doctorsRes.json() : [];
+                    const receptionists = receptionistsRes.ok ? await receptionistsRes.json() : [];
+
+                    const doctorList = Array.isArray(doctors) ? doctors : [];
+                    const receptionistList = Array.isArray(receptionists) ? receptionists : [];
+
+                    if (isActive) {
+                        setStats({
+                            totalDoctors: doctorList.length,
+                            totalReceptionists: receptionistList.length,
+                            totalPatients: 0,
+                            totalDepartments: DEPARTMENTS.length,
+                        });
+                    }
+                } catch (error) {
+                    console.error('Dashboard load error:', error);
+                    if (isActive) {
+                        setStats({
+                            totalDoctors: 0,
+                            totalReceptionists: 0,
+                            totalPatients: 0,
+                            totalDepartments: 0,
+                        });
+                    }
+                } finally {
+                    clearTimeout(timeoutId);
+                    if (isActive) setLoading(false);
+                }
+            };
+
+            loadDashboardData();
+
+            return () => {
+                isActive = false;
+                controller.abort();
+                clearTimeout(timeoutId);
+            };
+        }, [])
+    );
 
     const handleLogout = () => {
         Alert.alert(
@@ -107,7 +155,7 @@ export default function AdminDashboard() {
 
                     {/* Card 1: Doctors */}
                     <TouchableOpacity
-                        style={{ width: '48%', marginBottom: 15 }} // Width 48% taake 2 cards barabar ayen
+                        style={{ width: '48%', marginBottom: 15 }}
                         activeOpacity={0.8}
                         onPress={() => router.push('/(admin)/doctor')}
                     >
@@ -119,7 +167,21 @@ export default function AdminDashboard() {
                         />
                     </TouchableOpacity>
 
-                    {/* Card 2: Patients */}
+                    {/* Card 2: Receptionists */}
+                    <TouchableOpacity
+                        style={{ width: '48%', marginBottom: 15 }}
+                        activeOpacity={0.8}
+                        onPress={() => router.push('/(admin)/receptionist' as any)}
+                    >
+                        <StatCard
+                            title="Total Receptionists"
+                            value={stats.totalReceptionists.toString()}
+                            icon="account-tie"
+                            color="#FF9800"
+                        />
+                    </TouchableOpacity>
+
+                    {/* Card 3: Patients */}
                     <TouchableOpacity
                         style={{ width: '48%', marginBottom: 15 }}
                         activeOpacity={0.8}
@@ -133,21 +195,11 @@ export default function AdminDashboard() {
                         />
                     </TouchableOpacity>
 
-                    {/* Card 3: Avg Time */}
+                    {/* Card 4: Departments (unique doctor specializations — no departments screen yet) */}
                     <View style={{ width: '48%', marginBottom: 15 }}>
                         <StatCard
-                            title="Avg. Time (AI)"
-                            value={stats.avgConsultation}
-                            icon="timer-outline"
-                            color="#FF9800"
-                        />
-                    </View>
-
-                    {/* Card 4: Depts */}
-                    <View style={{ width: '48%', marginBottom: 15 }}>
-                        <StatCard
-                            title="Depts"
-                            value={stats.activeDepartments.toString()}
+                            title="Total Departments"
+                            value={stats.totalDepartments.toString()}
                             icon="hospital-building"
                             color="#E91E63"
                         />

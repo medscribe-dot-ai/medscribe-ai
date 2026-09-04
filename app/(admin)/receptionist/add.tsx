@@ -3,23 +3,10 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import { Alert, KeyboardAvoidingView, Platform, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Constants from 'expo-constants';
 import { colors } from '../../../src/theme/colors';
+import { API_URL } from '../../../src/config/api';
 
-const FALLBACK_API_URL = 'https://medscribeai-pzqu.onrender.com';
 
-function resolveApiUrl(): string {
-    const hostUri = Constants.expoConfig?.hostUri;
-    if (__DEV__ && hostUri) {
-        const host = hostUri.split(':')[0];
-        if (host) return `http://${host}:8000`;
-    }
-
-    const envUrl = process.env.EXPO_PUBLIC_API_URL?.trim();
-    if (envUrl) return envUrl.replace(/\/$/, '');
-
-    return FALLBACK_API_URL;
-}
 
 const NAME_REGEX = /^[A-Za-z.\s]{3,50}$/;
 const USERNAME_REGEX = /^[a-z0-9_]{3,20}$/;
@@ -56,7 +43,7 @@ export default function AddReceptionist() {
     useEffect(() => {
         const wakeUpServer = async () => {
             try {
-                await fetch(`${resolveApiUrl()}/receptionists`);
+                await fetch(`${API_URL}/receptionists`);
                 setServerReady(true);
             } catch {
                 setServerReady(false);
@@ -154,7 +141,7 @@ export default function AddReceptionist() {
         setLoading(true);
 
         try {
-            const apiUrl = resolveApiUrl();
+            const apiUrl = API_URL;
 
             if (isEditMode && editingId) {
                 const payload: any = {

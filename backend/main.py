@@ -525,8 +525,17 @@ async def process_audio(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
+    # Optional appointment link (backward-compatible: may be None)
+    appointment_id = request.appointment_id
+    if appointment_id is not None:
+        appt = db.query(models.Appointment).filter(
+            models.Appointment.appointment_id == appointment_id
+        ).first()
+        if not appt:
+            raise HTTPException(status_code=404, detail="Appointment not found")
+
     new_consultation = models.Consultation(
-        appointment_id=None,
+        appointment_id=appointment_id,
         doctor_id=request.doctor_id,
         audio_recording_url=request.audio_url,
         audio_file_path=request.audio_file_path,
@@ -549,6 +558,7 @@ async def process_audio(
     return {
         "status":          "queued",
         "consultation_id": new_consultation.consultation_id,
+        "appointment_id":  new_consultation.appointment_id,
         "message":         "Audio queued successfully. Processing will start shortly."
     }
 
@@ -572,6 +582,7 @@ def get_consultation_status(consultation_id: int, db: Session = Depends(get_db))
         "processing_step":  getattr(consultation, 'processing_step', None),
         "progress_message": getattr(consultation, 'progress_message', None),
         "progress_percent": getattr(consultation, 'progress_percent', 0),
+        "appointment_id":   consultation.appointment_id,
     }
 
     if consultation.status in ("pending_approval", "completed", "rejected"):
@@ -673,6 +684,14 @@ def approve_soap_note(
         consultation.doctor_id = request.doctor_id
     consultation.updated_at = datetime.datetime.utcnow()
 
+    # Complete linked OPD visit when SOAP is approved
+    if consultation.appointment_id:
+        appt = db.query(models.Appointment).filter(
+            models.Appointment.appointment_id == consultation.appointment_id
+        ).first()
+        if appt and appt.status == "in_progress":
+            appt.status = "completed"
+
     parsed = parse_soap_sections(final_soap)
 
     existing_report = db.query(models.SOAPReport).filter(
@@ -761,6 +780,183 @@ def get_doctor_consultations(doctor_id: int, db: Session = Depends(get_db)):
         }
         for c in consultations
     ]
+
+
+# ====================== APPOINTMENT / VISIT ENDPOINTS ======================
+
+APPOINTMENT_STATUSES = {"scheduled", "waiting", "in_progress", "completed", "cancelled"}
+
+# Minimal allowed transitions for OPD visit flow
+APPOINTMENT_TRANSITIONS = {
+    "scheduled":   {"waiting", "cancelled"},
+    "waiting":     {"in_progress", "cancelled"},
+    "in_progress": {"completed", "cancelled"},
+    "completed":   set(),
+    "cancelled":   set(),
+}
+
+
+def _generate_queue_token(db: Session) -> str:
+    """Per-visit token: T-YYYYMMDD-NNN (unique for the day). Not patient_code."""
+    today = datetime.datetime.utcnow().strftime("%Y%m%d")
+    prefix = f"T-{today}-"
+    count_today = db.query(models.Appointment).filter(
+        models.Appointment.queue_token.like(f"{prefix}%")
+    ).count()
+    return f"{prefix}{str(count_today + 1).zfill(3)}"
+
+
+def _appointment_response(appt: models.Appointment) -> dict:
+    patient_name = appt.patient.name if appt.patient else None
+    patient_code = appt.patient.patient_code if appt.patient else None
+    doctor_name = None
+    if appt.doctor and appt.doctor.user:
+        doctor_name = appt.doctor.user.name
+    return {
+        "appointment_id": appt.appointment_id,
+        "patient_id": appt.patient_id,
+        "doctor_id": appt.doctor_id,
+        "scheduled_time": appt.scheduled_time,
+        "status": appt.status,
+        "queue_token": appt.queue_token,
+        "created_at": appt.created_at,
+        "patient_name": patient_name,
+        "patient_code": patient_code,
+        "doctor_name": doctor_name,
+    }
+
+
+@app.post("/appointments", response_model=schemas.AppointmentResponse)
+def create_appointment(payload: schemas.AppointmentCreate, db: Session = Depends(get_db)):
+    """
+    Book an OPD visit for an existing patient.
+    Default status=waiting (current visit) → generates queue_token immediately.
+    status=scheduled → future appointment, no token yet.
+    """
+    status = (payload.status or "waiting").lower().strip()
+    if status not in APPOINTMENT_STATUSES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid status '{status}'. Allowed: {sorted(APPOINTMENT_STATUSES)}",
+        )
+    if status not in ("waiting", "scheduled"):
+        raise HTTPException(
+            status_code=400,
+            detail="New appointments may only start as 'waiting' or 'scheduled'.",
+        )
+
+    patient = db.query(models.Patient).filter(
+        models.Patient.patient_id == payload.patient_id
+    ).first()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+
+    doctor = db.query(models.Doctor).filter(
+        models.Doctor.doctor_id == payload.doctor_id
+    ).first()
+    if not doctor:
+        raise HTTPException(status_code=404, detail="Doctor not found")
+
+    scheduled_time = payload.scheduled_time or datetime.datetime.utcnow()
+    queue_token = None
+    if status == "waiting":
+        queue_token = _generate_queue_token(db)
+
+    try:
+        appt = models.Appointment(
+            patient_id=payload.patient_id,
+            doctor_id=payload.doctor_id,
+            scheduled_time=scheduled_time,
+            status=status,
+            queue_token=queue_token,
+        )
+        db.add(appt)
+        db.commit()
+        db.refresh(appt)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to create appointment: {str(e)}")
+
+    return _appointment_response(appt)
+
+
+@app.get("/appointments", response_model=List[schemas.AppointmentResponse])
+def list_appointments(
+    date: Optional[str] = None,
+    doctor_id: Optional[int] = None,
+    patient_id: Optional[int] = None,
+    status: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """List appointments. Filters: date=YYYY-MM-DD, doctor_id, patient_id, status."""
+    query = db.query(models.Appointment)
+
+    if doctor_id is not None:
+        query = query.filter(models.Appointment.doctor_id == doctor_id)
+    if patient_id is not None:
+        query = query.filter(models.Appointment.patient_id == patient_id)
+    if status:
+        query = query.filter(models.Appointment.status == status.lower().strip())
+    if date:
+        try:
+            day = datetime.datetime.strptime(date, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="date must be YYYY-MM-DD")
+        day_end = day + datetime.timedelta(days=1)
+        query = query.filter(
+            models.Appointment.scheduled_time >= day,
+            models.Appointment.scheduled_time < day_end,
+        )
+
+    appointments = query.order_by(
+        models.Appointment.scheduled_time.asc().nullslast(),
+        models.Appointment.created_at.asc(),
+    ).all()
+
+    return [_appointment_response(a) for a in appointments]
+
+
+@app.patch("/appointments/{appointment_id}/status", response_model=schemas.AppointmentResponse)
+def update_appointment_status(
+    appointment_id: int,
+    payload: schemas.AppointmentStatusUpdate,
+    db: Session = Depends(get_db),
+):
+    """Update appointment status. Generates queue_token when entering waiting."""
+    appt = db.query(models.Appointment).filter(
+        models.Appointment.appointment_id == appointment_id
+    ).first()
+    if not appt:
+        raise HTTPException(status_code=404, detail="Appointment not found")
+
+    new_status = payload.status.lower().strip()
+    if new_status not in APPOINTMENT_STATUSES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid status '{new_status}'. Allowed: {sorted(APPOINTMENT_STATUSES)}",
+        )
+
+    current = (appt.status or "scheduled").lower()
+    allowed = APPOINTMENT_TRANSITIONS.get(current, set())
+    if new_status != current and new_status not in allowed:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot transition from '{current}' to '{new_status}'. Allowed: {sorted(allowed) or 'none'}",
+        )
+
+    # Generate per-visit token when entering the waiting queue
+    if new_status == "waiting" and not appt.queue_token:
+        appt.queue_token = _generate_queue_token(db)
+
+    appt.status = new_status
+    try:
+        db.commit()
+        db.refresh(appt)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to update status: {str(e)}")
+
+    return _appointment_response(appt)
 
 
 # ====================== RECEPTIONIST ENDPOINTS ======================
@@ -872,6 +1068,80 @@ def search_patients(search: Optional[str] = "", db: Session = Depends(get_db)):
         })
 
     return results
+
+
+@app.get("/patients/{patient_id}/history", response_model=schemas.PatientHistoryResponse)
+def get_patient_history(patient_id: int, db: Session = Depends(get_db)):
+    """
+    Longitudinal visit history for one patient (newest first).
+    Includes approved SOAP when the linked consultation is completed.
+    """
+    patient = db.query(models.Patient).filter(
+        models.Patient.patient_id == patient_id
+    ).first()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+
+    appointments = (
+        db.query(models.Appointment)
+        .filter(models.Appointment.patient_id == patient_id)
+        .order_by(
+            models.Appointment.scheduled_time.desc().nullslast(),
+            models.Appointment.created_at.desc(),
+        )
+        .all()
+    )
+
+    visits = []
+    for appt in appointments:
+        doctor_name = None
+        if appt.doctor and appt.doctor.user:
+            doctor_name = appt.doctor.user.name
+
+        consultation = appt.consultation
+        consultation_id = consultation.consultation_id if consultation else None
+        consultation_status = consultation.status if consultation else None
+        soap_note = None
+        soap_sections = None
+
+        if consultation and (consultation.status or "").lower() == "completed":
+            soap_note = consultation.soap_note
+            report = consultation.soap_report
+            if report:
+                soap_sections = {
+                    "subjective": report.subjective,
+                    "objective": report.objective,
+                    "assessment": report.assessment,
+                    "plan": report.plan,
+                }
+            elif soap_note:
+                parsed = parse_soap_sections(soap_note)
+                soap_sections = {
+                    "subjective": parsed.get("subjective"),
+                    "objective": parsed.get("objective"),
+                    "assessment": parsed.get("assessment"),
+                    "plan": parsed.get("plan"),
+                }
+
+        visits.append({
+            "appointment_id": appt.appointment_id,
+            "scheduled_time": appt.scheduled_time,
+            "doctor_id": appt.doctor_id,
+            "doctor_name": doctor_name,
+            "status": appt.status,
+            "queue_token": appt.queue_token,
+            "consultation_id": consultation_id,
+            "consultation_status": consultation_status,
+            "soap_note": soap_note,
+            "soap_sections": soap_sections,
+        })
+
+    return {
+        "patient_id": patient.patient_id,
+        "patient_name": patient.name,
+        "patient_code": patient.patient_code,
+        "visits": visits,
+    }
 
 
 @app.get("/patients/recent", response_model=List[schemas.PatientResponse])

@@ -4,9 +4,9 @@ import axios from 'axios';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { API_URL } from '../../config/api';
 import { colors } from '../../theme/colors';
 
-const API_URL = "https://medscribeai-pzqu.onrender.com";
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const USERNAME_REGEX = /^[a-zA-Z0-9_@.\-]{3,100}$/;
 const MIN_PASSWORD_LENGTH = 6;

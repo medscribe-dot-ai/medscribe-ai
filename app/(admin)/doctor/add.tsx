@@ -3,23 +3,10 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import { Alert, FlatList, KeyboardAvoidingView, Modal, Platform, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Constants from 'expo-constants';
 import { colors } from '../../../src/theme/colors';
+import { API_URL } from '../../../src/config/api';
 
-const FALLBACK_API_URL = 'https://medscribeai-pzqu.onrender.com';
 
-function resolveApiUrl(): string {
-    const hostUri = Constants.expoConfig?.hostUri;
-    if (__DEV__ && hostUri) {
-        const host = hostUri.split(':')[0];
-        if (host) return `http://${host}:8000`;
-    }
-
-    const envUrl = process.env.EXPO_PUBLIC_API_URL?.trim();
-    if (envUrl) return envUrl.replace(/\/$/, '');
-
-    return FALLBACK_API_URL;
-}
 const SPECIALIZATIONS = ["Cardiologist", "Dermatologist", "Neurologist", "Pediatrician", "General Physician", "Surgeon"];
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -74,7 +61,7 @@ export default function AddDoctor() {
     useEffect(() => {
         const wakeUpServer = async () => {
             try {
-                await fetch(`${resolveApiUrl()}/doctors`);
+                await fetch(`${API_URL}/doctors`);
                 setServerReady(true);
             } catch (e) {
                 setServerReady(false);
@@ -236,7 +223,7 @@ export default function AddDoctor() {
 
             console.log("Sending payload:", JSON.stringify(payload));
 
-            const response = await fetch(`${resolveApiUrl()}/admin/add-doctor`, {
+            const response = await fetch(`${API_URL}/admin/add-doctor`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

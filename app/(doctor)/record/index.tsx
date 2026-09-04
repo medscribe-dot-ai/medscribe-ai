@@ -1,12 +1,12 @@
-// index.tsx — MedScribe Voice Recording Screen
+import { API_URL } from '@/src/config/api';
 import { supabase } from '@/src/lib/supabase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { decode } from 'base64-arraybuffer';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
-import { useRouter } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Platform,
@@ -16,8 +16,6 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-
-const BACKEND_URL = 'https://medscribeai-pzqu.onrender.com';
 
 // ─────────────────────────────────────────────────────────────
 //   TYPES
@@ -776,6 +774,17 @@ async function persistPickedAudio(picked: { uri: string; name?: string; mimeType
 // ─────────────────────────────────────────────────────────────
 export default function VoiceRecordingScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{
+    appointment_id?: string;
+    queue_token?: string;
+    patient_name?: string;
+    patient_code?: string;
+  }>();
+
+  // Visit context from doctor queue (linked to consultation in a later step)
+  const appointmentId = params.appointment_id ? Number(params.appointment_id) : null;
+  const visitToken = params.queue_token || null;
+  const visitPatientName = params.patient_name || null;
 
   const [selectedFile, setSelectedFile] = useState<any>(null);
   const [uploadStatus, setUploadStatus] = useState<UploadStatus>('idle');
@@ -839,7 +848,7 @@ export default function VoiceRecordingScreen() {
     if (pollingRef.current) clearInterval(pollingRef.current);
     pollingRef.current = setInterval(async () => {
       try {
-        const res = await fetch(`${BACKEND_URL}/consultation/${id}/status`);
+        const res = await fetch(`${API_URL}/consultation/${id}/status`);
         const data = await res.json();
         setUploadStatus(data.status as UploadStatus);
         setCurrentStep(data.processing_step || '');
@@ -947,7 +956,7 @@ export default function VoiceRecordingScreen() {
       setUploadStatus('queued');
       setProgressMessage('AI pipeline mein queue ho gaya...');
       setProgressPercent(30);
-      const backendRes = await fetch(`${BACKEND_URL}/consultation/process-audio`, {
+      const backendRes = await fetch(`${API_URL}/consultation/process-audio`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -955,6 +964,8 @@ export default function VoiceRecordingScreen() {
           audio_file_path: filePath,
           file_name: selectedFile.name,
           doctor_id: doctorId,
+          // Link this consultation to the visit when started from doctor queue
+          appointment_id: appointmentId || null,
         }),
       });
       if (!backendRes.ok) {
@@ -967,7 +978,7 @@ export default function VoiceRecordingScreen() {
       if (backendData.consultation_id == null) {
         throw new Error('Backend did not return consultation_id');
       }
-      console.log('Consultation queued', backendData.consultation_id);
+      console.log('Consultation queued', backendData.consultation_id, 'appointment_id:', backendData.appointment_id);
       setConsultationId(backendData.consultation_id);
       startPolling(backendData.consultation_id);
     } catch (err) {
@@ -985,7 +996,7 @@ export default function VoiceRecordingScreen() {
     try {
       const finalSoap = editMode ? buildRawFromEdited() : soapRaw;
       const doctorId = await getSessionDoctorId();
-      const res = await fetch(`${BACKEND_URL}/consultation/${consultationId}/approve`, {
+      const res = await fetch(`${API_URL}/consultation/${consultationId}/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ approved_soap: finalSoap, doctor_id: doctorId }),
@@ -1013,7 +1024,7 @@ export default function VoiceRecordingScreen() {
       { text: 'Reject', style: 'destructive', onPress: async () => {
         setIsRejecting(true);
         try {
-          const res = await fetch(`${BACKEND_URL}/consultation/${consultationId}/reject?reason=Doctor%20rejected%20from%20app`, { method: 'POST' });
+          const res = await fetch(`${API_URL}/consultation/${consultationId}/reject?reason=Doctor%20rejected%20from%20app`, { method: 'POST' });
           if (!res.ok) {
             const errBody = await res.json().catch(() => null);
             throw new Error(getErrorMessage(errBody) || `Reject failed (${res.status})`);
@@ -1076,6 +1087,27 @@ export default function VoiceRecordingScreen() {
         <Text style={{ color: '#64748b', fontSize: 14, fontWeight: '500', marginTop: 4 }}>
           Capture or upload clinical consultation
         </Text>
+        {appointmentId ? (
+          <View
+            style={{
+              marginTop: 12,
+              backgroundColor: '#f0fdfa',
+              borderWidth: 1,
+              borderColor: '#99f6e4',
+              borderRadius: 14,
+              paddingHorizontal: 12,
+              paddingVertical: 10,
+            }}
+          >
+            <Text style={{ color: '#0d9488', fontSize: 12, fontWeight: '700' }}>
+              Visit {visitToken || `APPT-${appointmentId}`}
+              {visitPatientName ? ` · ${visitPatientName}` : ''}
+            </Text>
+            <Text style={{ color: '#64748b', fontSize: 11, marginTop: 2 }}>
+              Linked appointment_id: {appointmentId}
+            </Text>
+          </View>
+        ) : null}
       </View>
 
       {/* ── Upload Card ── */}

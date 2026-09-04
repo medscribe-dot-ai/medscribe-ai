@@ -4,12 +4,8 @@ import { StatusBar } from 'expo-status-bar';
 import React, { useState } from 'react';
 import { ActivityIndicator, Alert, Platform, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { API_URL } from '../../../src/config/api';
 import { colors } from '../../../src/theme/colors';
-
-// Same base URL used by add-doctor.tsx — the hardcoded 10.0.2.2 emulator address
-// only works from the Android emulator hitting a localhost backend, so it was
-// silently failing on real devices / production.
-const API_URL = "https://medscribeai-pzqu.onrender.com";
 
 // React Native's Alert.alert doesn't reliably show a popup on Expo Web —
 // it often just console.logs. This fallback guarantees you actually SEE

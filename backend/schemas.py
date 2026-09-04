@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 import datetime
 
 
@@ -92,6 +92,8 @@ class AudioProcessRequest(BaseModel):
     audio_file_path: str
     file_name: str
     doctor_id: Optional[int] = None
+    # Optional visit link — set when started from doctor queue
+    appointment_id: Optional[int] = None
 
 
 class ConsultationStatusResponse(BaseModel):
@@ -189,3 +191,64 @@ class QueuePatientResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ── Appointment / Visit Schemas ──────────────────────────────
+
+class AppointmentCreate(BaseModel):
+    patient_id: int
+    doctor_id: int
+    scheduled_time: Optional[datetime.datetime] = None
+    # waiting = current OPD visit (token generated immediately)
+    # scheduled = future appointment (no token yet)
+    status: Optional[str] = "waiting"
+
+
+class AppointmentStatusUpdate(BaseModel):
+    status: str  # scheduled | waiting | in_progress | completed | cancelled
+
+
+class AppointmentResponse(BaseModel):
+    appointment_id: int
+    patient_id: int
+    doctor_id: int
+    scheduled_time: Optional[datetime.datetime] = None
+    status: Optional[str] = None
+    queue_token: Optional[str] = None
+    created_at: Optional[datetime.datetime] = None
+    patient_name: Optional[str] = None
+    patient_code: Optional[str] = None
+    doctor_name: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+# ── Patient Longitudinal History ─────────────────────────────
+
+class PatientHistorySoapSections(BaseModel):
+    subjective: Optional[str] = None
+    objective: Optional[str] = None
+    assessment: Optional[str] = None
+    plan: Optional[str] = None
+
+
+class PatientHistoryVisit(BaseModel):
+    appointment_id: int
+    scheduled_time: Optional[datetime.datetime] = None
+    doctor_id: Optional[int] = None
+    doctor_name: Optional[str] = None
+    status: Optional[str] = None
+    queue_token: Optional[str] = None
+    consultation_id: Optional[int] = None
+    consultation_status: Optional[str] = None
+    # Populated only when consultation.status == "completed"
+    soap_note: Optional[str] = None
+    soap_sections: Optional[PatientHistorySoapSections] = None
+
+
+class PatientHistoryResponse(BaseModel):
+    patient_id: int
+    patient_name: Optional[str] = None
+    patient_code: Optional[str] = None
+    visits: List[PatientHistoryVisit] = []
