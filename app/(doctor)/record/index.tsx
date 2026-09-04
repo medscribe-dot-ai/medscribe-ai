@@ -1,11 +1,12 @@
 // index.tsx — MedScribe Voice Recording Screen
 import { supabase } from '@/src/lib/supabase';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { decode } from 'base64-arraybuffer';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Platform,
@@ -16,7 +17,7 @@ import {
   View,
 } from 'react-native';
 
-const BACKEND_URL = 'http://192.168.80.145:8000';
+const BACKEND_URL = 'https://medscribeai-pzqu.onrender.com';
 
 // ─────────────────────────────────────────────────────────────
 //   TYPES
@@ -690,6 +691,87 @@ function LabelLegend() {
 }
 
 // ─────────────────────────────────────────────────────────────
+//   ERROR MESSAGE HELPER
+// ─────────────────────────────────────────────────────────────
+function getErrorMessage(err: unknown): string {
+  if (err == null) return 'Unknown error';
+  if (typeof err === 'string' && err.trim()) return err;
+  if (err instanceof Error && err.message) return err.message;
+  if (typeof err === 'object') {
+    const obj = err as Record<string, unknown>;
+    if (typeof obj.message === 'string' && obj.message.trim()) return obj.message;
+    if (typeof obj.detail === 'string' && obj.detail.trim()) return obj.detail;
+    if (typeof obj.error === 'string' && obj.error.trim()) return obj.error;
+    if (obj.error && typeof obj.error === 'object') {
+      const nested = obj.error as Record<string, unknown>;
+      if (typeof nested.message === 'string' && nested.message.trim()) return nested.message;
+    }
+    try {
+      const json = JSON.stringify(err);
+      if (json && json !== '{}') return json;
+    } catch {
+      // fall through
+    }
+  }
+  return String(err);
+}
+
+function isTransientPickerUri(uri: string): boolean {
+  return uri.includes('/cache/DocumentPicker/') || uri.includes('DocumentPicker');
+}
+
+async function persistPickedAudio(picked: { uri: string; name?: string; mimeType?: string; size?: number }) {
+  const pickerUri = picked.uri;
+  const pickerInfo = await FileSystem.getInfoAsync(pickerUri);
+  if (!pickerInfo.exists) {
+    throw new Error(`Picked file does not exist at ${pickerUri}`);
+  }
+
+  // Read immediately while Android still lets us open the picker cache file.
+  // copyAsync is not enough — it can leave a handle to the same cache path.
+  const base64 = await FileSystem.readAsStringAsync(pickerUri, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
+  if (!base64) {
+    throw new Error(`Picked file could not be read at ${pickerUri}`);
+  }
+
+  if (!FileSystem.documentDirectory) {
+    throw new Error('FileSystem.documentDirectory is not available');
+  }
+
+  const uploadsDir = `${FileSystem.documentDirectory}uploads/`;
+  const dirInfo = await FileSystem.getInfoAsync(uploadsDir);
+  if (!dirInfo.exists) {
+    await FileSystem.makeDirectoryAsync(uploadsDir, { intermediates: true });
+  }
+
+  const ext = (picked.name?.split('.').pop() || 'wav').replace(/[^a-zA-Z0-9]/g, '') || 'wav';
+  const stableUri = `${uploadsDir}${Date.now()}_consultation.${ext}`;
+
+  await FileSystem.writeAsStringAsync(stableUri, base64, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
+
+  const writtenInfo = await FileSystem.getInfoAsync(stableUri);
+  if (!writtenInfo.exists) {
+    throw new Error(`Copied file does not exist at ${stableUri}`);
+  }
+  if (isTransientPickerUri(stableUri)) {
+    throw new Error(`Failed to persist file out of DocumentPicker cache: ${stableUri}`);
+  }
+
+  console.log('Persisted audio from', pickerUri, 'to', stableUri);
+  return {
+    uri: stableUri,
+    base64,
+    name: picked.name || `consultation.${ext}`,
+    mimeType: picked.mimeType || 'audio/wav',
+    size: picked.size,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────
 //   MAIN SCREEN
 // ─────────────────────────────────────────────────────────────
 export default function VoiceRecordingScreen() {
@@ -711,6 +793,7 @@ export default function VoiceRecordingScreen() {
   const [isRejecting, setIsRejecting] = useState(false);
 
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const audioBase64Ref = useRef<string | null>(null);
 
   useEffect(() => () => { if (pollingRef.current) clearInterval(pollingRef.current); }, []);
 
@@ -732,12 +815,22 @@ export default function VoiceRecordingScreen() {
   const handleUploadSelection = async () => {
     try {
       const result = await DocumentPicker.getDocumentAsync({ type: 'audio/*', copyToCacheDirectory: true });
-      if (!result.canceled && result.assets?.[0]) {
-        setSelectedFile(result.assets[0]);
-        resetState(false);
-      }
-    } catch {
-      Alert.alert('Error', 'File select karne mein masla aaya');
+      if (result.canceled || !result.assets?.[0]) return;
+
+      const persisted = await persistPickedAudio(result.assets[0]);
+      audioBase64Ref.current = persisted.base64;
+      setSelectedFile({
+        name: persisted.name,
+        mimeType: persisted.mimeType,
+        size: persisted.size,
+        uri: persisted.uri,
+      });
+      resetState(false);
+    } catch (err) {
+      audioBase64Ref.current = null;
+      const message = getErrorMessage(err);
+      console.log('File pick error:', message, err);
+      Alert.alert('Error', message);
     }
   };
 
@@ -760,8 +853,27 @@ export default function VoiceRecordingScreen() {
           if (pollingRef.current) clearInterval(pollingRef.current);
           Alert.alert('Processing Error', data.error_message || 'Kuch galat ho gaya');
         }
-      } catch (e) { console.warn('Polling error:', e); }
+      } catch (e) {
+        const message = getErrorMessage(e);
+        console.log('Polling error:', message, e);
+        Alert.alert('Polling Error', message);
+      }
     }, 7000);
+  };
+
+  const getSessionDoctorId = async (): Promise<number | null> => {
+    try {
+      const raw = await AsyncStorage.getItem('user_data');
+      if (!raw) return null;
+      const user = JSON.parse(raw);
+      const id = user.doctor_id;
+      if (typeof id === 'number' && Number.isFinite(id)) return id;
+      if (typeof id === 'string' && /^\d+$/.test(id)) return Number(id);
+      return null;
+    } catch (e) {
+      console.log('Could not read doctor_id from session', e);
+      return null;
+    }
   };
 
   // ── Upload ────────────────────────────────────────────────
@@ -771,31 +883,98 @@ export default function VoiceRecordingScreen() {
     setCurrentStep('uploading');
     setProgressMessage('Supabase Storage mein upload ho raha hai...');
     setProgressPercent(10);
+    let uploadedPath: string | null = null;
     try {
       const fileExt = selectedFile.name.split('.').pop() ?? 'mp3';
       const fileName = `${Date.now()}_consultation.${fileExt}`;
       const filePath = `consultations/${fileName}`;
-      const base64 = await FileSystem.readAsStringAsync(selectedFile.uri, { encoding: 'base64' });
+
+      let base64 = audioBase64Ref.current;
+      if (!base64) {
+        if (!selectedFile.uri || isTransientPickerUri(selectedFile.uri)) {
+          throw new Error(`Picked file does not exist at ${selectedFile.uri}`);
+        }
+        const fileInfo = await FileSystem.getInfoAsync(selectedFile.uri);
+        if (!fileInfo.exists) {
+          throw new Error(`Picked file does not exist at ${selectedFile.uri}`);
+        }
+        base64 = await FileSystem.readAsStringAsync(selectedFile.uri, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+        audioBase64Ref.current = base64;
+      }
+      if (!base64) {
+        throw new Error(`Picked file could not be read at ${selectedFile.uri}`);
+      }
+
+      const audioBytes = decode(base64);
+      console.log('Upload metadata', {
+        name: selectedFile.name,
+        mimeType: selectedFile.mimeType,
+        size: selectedFile.size,
+        uri: selectedFile.uri,
+        byteLength: audioBytes.byteLength,
+        filePath,
+      });
+      if (!audioBytes.byteLength) {
+        throw new Error('Audio file is empty after read');
+      }
+
       const { error: storageError } = await supabase.storage
         .from('clinical-audios')
-        .upload(filePath, decode(base64), { contentType: selectedFile.mimeType || 'audio/mpeg', upsert: true });
-      if (storageError) throw storageError;
+        .upload(filePath, audioBytes, {
+          contentType: selectedFile.mimeType || 'audio/mpeg',
+          upsert: true,
+        });
+      if (storageError) {
+        throw new Error(`Storage upload failed: ${getErrorMessage(storageError)}`);
+      }
+      uploadedPath = filePath;
+
       const { data: { publicUrl } } = supabase.storage.from('clinical-audios').getPublicUrl(filePath);
+      if (!publicUrl) {
+        throw new Error('Storage upload succeeded but no public URL was returned');
+      }
+      console.log('Storage public URL', publicUrl);
+
+      let doctorId: number | null = null;
+      try {
+        doctorId = await getSessionDoctorId();
+      } catch (e) {
+        console.log('Could not read doctor_id from session', e);
+      }
+
       setUploadStatus('queued');
       setProgressMessage('AI pipeline mein queue ho gaya...');
       setProgressPercent(30);
       const backendRes = await fetch(`${BACKEND_URL}/consultation/process-audio`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ audio_url: publicUrl, audio_file_path: filePath, file_name: selectedFile.name, doctor_id: null }),
+        body: JSON.stringify({
+          audio_url: publicUrl,
+          audio_file_path: filePath,
+          file_name: selectedFile.name,
+          doctor_id: doctorId,
+        }),
       });
-      if (!backendRes.ok) { const err = await backendRes.json(); throw new Error(err.detail || 'Backend error'); }
+      if (!backendRes.ok) {
+        const errBody = await backendRes.json().catch(() => null);
+        throw new Error(
+          getErrorMessage(errBody) || `Backend process-audio failed (${backendRes.status})`
+        );
+      }
       const backendData = await backendRes.json();
+      if (backendData.consultation_id == null) {
+        throw new Error('Backend did not return consultation_id');
+      }
+      console.log('Consultation queued', backendData.consultation_id);
       setConsultationId(backendData.consultation_id);
       startPolling(backendData.consultation_id);
-    } catch (err: any) {
+    } catch (err) {
+      const message = getErrorMessage(err);
+      console.log('Upload error:', message, err, { uploadedPath });
       setUploadStatus('error');
-      Alert.alert('Upload Failed', err.message || 'Kuch masla aaya');
+      Alert.alert('Upload Failed', message);
     }
   };
 
@@ -805,18 +984,24 @@ export default function VoiceRecordingScreen() {
     setIsApproving(true);
     try {
       const finalSoap = editMode ? buildRawFromEdited() : soapRaw;
+      const doctorId = await getSessionDoctorId();
       const res = await fetch(`${BACKEND_URL}/consultation/${consultationId}/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ approved_soap: finalSoap, doctor_id: null }),
+        body: JSON.stringify({ approved_soap: finalSoap, doctor_id: doctorId }),
       });
-      if (!res.ok) throw new Error('Approve call failed');
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => null);
+        throw new Error(getErrorMessage(errBody) || `Approve call failed (${res.status})`);
+      }
       setUploadStatus('completed');
       setSoapRaw(finalSoap);
       setEditMode(false);
       Alert.alert('Approved!', 'SOAP Note finalize ho gaya database mein.');
-    } catch (e: any) {
-      Alert.alert('Error', e.message || 'Approve mein masla aaya');
+    } catch (e) {
+      const message = getErrorMessage(e);
+      console.log('Approve error:', message, e);
+      Alert.alert('Error', message);
     } finally { setIsApproving(false); }
   };
 
@@ -829,10 +1014,17 @@ export default function VoiceRecordingScreen() {
         setIsRejecting(true);
         try {
           const res = await fetch(`${BACKEND_URL}/consultation/${consultationId}/reject?reason=Doctor%20rejected%20from%20app`, { method: 'POST' });
-          if (!res.ok) throw new Error('Reject failed');
+          if (!res.ok) {
+            const errBody = await res.json().catch(() => null);
+            throw new Error(getErrorMessage(errBody) || `Reject failed (${res.status})`);
+          }
           setUploadStatus('rejected');
           setEditMode(false);
-        } catch (e: any) { Alert.alert('Error', e.message); }
+        } catch (e) {
+          const message = getErrorMessage(e);
+          console.log('Reject error:', message, e);
+          Alert.alert('Error', message);
+        }
         finally { setIsRejecting(false); }
       }},
     ]);
@@ -840,7 +1032,10 @@ export default function VoiceRecordingScreen() {
 
   // ── Reset ─────────────────────────────────────────────────
   const resetState = (clearFile = true) => {
-    if (clearFile) setSelectedFile(null);
+    if (clearFile) {
+      setSelectedFile(null);
+      audioBase64Ref.current = null;
+    }
     setUploadStatus('idle');
     setSoapRaw('');
     setSoapSections({});
@@ -923,7 +1118,10 @@ export default function VoiceRecordingScreen() {
               <Text style={{ color: '#64748b', fontSize: 12, marginTop: 2 }}>Ready to process</Text>
             </View>
             {!isActive && !showReview && (
-              <TouchableOpacity onPress={() => setSelectedFile(null)}>
+              <TouchableOpacity onPress={() => {
+                setSelectedFile(null);
+                audioBase64Ref.current = null;
+              }}>
                 <MaterialCommunityIcons name="close-circle" size={24} color="#ef4444" />
               </TouchableOpacity>
             )}

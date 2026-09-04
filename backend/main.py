@@ -440,8 +440,7 @@ def delete_doctor(doctor_id: int, db: Session = Depends(get_db)):
 # ====================== HELPER: Get Latest Colab URL ======================
 
 def get_colab_url():
-    return "https://unwell-duller-handshake.ngrok-free.dev"
-    """Fetch latest ngrok URL from Supabase app_config table"""
+    """Fetch latest ngrok URL from Supabase app_config, then COLAB_URL env."""
     try:
         from supabase import create_client
         SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -450,11 +449,17 @@ def get_colab_url():
             supa = create_client(SUPABASE_URL, SUPABASE_KEY)
             response = supa.table("app_config").select("value").eq("key", "colab_url").execute()
             if response.data and len(response.data) > 0:
-                return response.data[0]["value"]
+                value = (response.data[0].get("value") or "").rstrip("/")
+                if value:
+                    return value
     except Exception as e:
         print(f"Warning: Could not fetch colab_url from DB: {e}")
 
-    return os.environ.get("COLAB_URL", "https://XXXX.ngrok-free.app")
+    env_url = (os.environ.get("COLAB_URL") or "").rstrip("/")
+    if env_url:
+        return env_url
+
+    return "https://donation-undertow-exalted.ngrok-free.dev"
 
 
 # ====================== AUDIO PROCESSING ======================
@@ -489,6 +494,7 @@ async def call_colab_in_background(consultation_id: int, audio_url: str, bucket_
                     "record_id":   str(consultation_id),
                     "bucket_path": bucket_path
                 },
+                headers={"ngrok-skip-browser-warning": "true"},
                 timeout=900.0
             )
             response.raise_for_status()
