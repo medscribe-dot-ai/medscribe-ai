@@ -3,8 +3,7 @@ import { View, Text, ScrollView, TextInput, TouchableOpacity, ActivityIndicator 
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
 import axios from 'axios';
-
-const API_URL = "https://medscribeai-pzqu.onrender.com";
+import { API_URL } from '../../src/config/api';
 
 interface Patient {
   patient_id: number;
@@ -97,7 +96,21 @@ const PatientsPage = () => {
           </Text>
         ) : (
           patients.map((p) => (
-            <View key={p.patient_id} className="bg-white p-5 rounded-2xl border border-slate-100 mb-4 shadow-sm flex-row justify-between items-center">
+            <TouchableOpacity
+              key={p.patient_id}
+              onPress={() =>
+                router.push({
+                  pathname: '/(receptionist)/book-appointment',
+                  params: {
+                    patient_id: String(p.patient_id),
+                    name: p.name,
+                    patient_code: p.patient_code || '',
+                  },
+                })
+              }
+              activeOpacity={0.85}
+              className="bg-white p-5 rounded-2xl border border-slate-100 mb-4 shadow-sm flex-row justify-between items-center"
+            >
               <View className="flex-row items-start flex-1">
                 <View className="w-12 h-12 bg-teal-50 rounded-full items-center justify-center">
                   <Text className="text-teal-700 font-bold">{getInitials(p.name)}</Text>
@@ -110,6 +123,7 @@ const PatientsPage = () => {
                   <Text className="text-xs text-slate-400 mt-0.5">
                     📞 {p.phone || 'N/A'} • 📄 {p.visit_count} visit{p.visit_count !== 1 ? 's' : ''}
                   </Text>
+                  <Text className="text-[11px] font-semibold text-teal-600 mt-2">Book New Appointment →</Text>
                 </View>
               </View>
 
@@ -119,7 +133,7 @@ const PatientsPage = () => {
                 </View>
                 <Text className="text-[10px] text-slate-400 mt-2">📅 {formatDate(p.created_at)}</Text>
               </View>
-            </View>
+            </TouchableOpacity>
           ))
         )}
       </ScrollView>

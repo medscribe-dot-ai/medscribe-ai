@@ -4,9 +4,9 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
+import { API_URL } from '../../src/config/api';
 
 const { height: screenHeight } = Dimensions.get('window');
-const API_URL = "https://medscribeai-pzqu.onrender.com";
 
 interface Stats {
   registered_today: number;

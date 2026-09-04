@@ -68,7 +68,10 @@ class Appointment(Base):
     patient_id = Column(Integer, ForeignKey("patients.patient_id"))
     doctor_id = Column(Integer, ForeignKey("doctors.doctor_id"))
     scheduled_time = Column(DateTime)
-    status = Column(String(50)) 
+    # scheduled | waiting | in_progress | completed | cancelled
+    status = Column(String(50), default="scheduled")
+    # Per-visit queue token (NOT patient_code). Set when status becomes waiting.
+    queue_token = Column(String(50), unique=True, nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
     patient = relationship("Patient", back_populates="appointments")

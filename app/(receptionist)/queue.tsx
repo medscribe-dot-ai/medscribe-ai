@@ -1,53 +1,88 @@
 import React, { useState, useCallback } from 'react';
-import { View, Text, ScrollView, TextInput, TouchableOpacity, SafeAreaView, Dimensions, ActivityIndicator } from 'react-native';
+import {
+  View,
+  Text,
+  ScrollView,
+  TextInput,
+  TouchableOpacity,
+  SafeAreaView,
+  Dimensions,
+  ActivityIndicator,
+  Alert,
+} from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
 import axios from 'axios';
+import { API_URL } from '../../src/config/api';
 
 const { height: screenHeight } = Dimensions.get('window');
-const API_URL = "https://medscribeai-pzqu.onrender.com";
 
-interface QueuePatient {
+interface QueueAppointment {
+  appointment_id: number;
   patient_id: number;
+  doctor_id: number;
+  scheduled_time: string | null;
+  status: string | null;
+  queue_token: string | null;
+  patient_name: string | null;
   patient_code: string | null;
-  name: string;
-  age: number | null;
-  gender: string | null;
-  department: string | null;
-  status: string | null; // "waiting" | "assigned"
   doctor_name: string | null;
   created_at: string | null;
 }
 
+const QUEUE_STATUSES = new Set(['waiting', 'in_progress', 'completed']);
+
 const PatientQueue = () => {
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeTab, setActiveTab] = useState('All');
-  const [queueData, setQueueData] = useState<QueuePatient[]>([]);
+  const [activeTab, setActiveTab] = useState('Waiting');
+  const [queueData, setQueueData] = useState<QueueAppointment[]>([]);
   const [loading, setLoading] = useState(true);
+  const [updatingId, setUpdatingId] = useState<number | null>(null);
 
   const tabs = ['All', 'Waiting', 'In Progress', 'Done'];
 
-  // Map DB status -> UI label
   const statusLabel = (status: string | null) => {
-    if (status === 'assigned') return 'In Progress';
+    if (status === 'in_progress') return 'In Progress';
+    if (status === 'completed') return 'Done';
     if (status === 'waiting') return 'Waiting';
-    return 'Waiting';
+    return status || '—';
   };
 
-  const getWaitMinutes = (createdAt: string | null) => {
-    if (!createdAt) return null;
-    const diffMs = Date.now() - new Date(createdAt).getTime();
+  const todayParam = () => {
+    const d = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  };
+
+  const formatTime = (iso: string | null) => {
+    if (!iso) return '—';
+    return new Date(iso).toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
+
+  const getWaitMinutes = (fromIso: string | null) => {
+    if (!fromIso) return null;
+    const diffMs = Date.now() - new Date(fromIso).getTime();
     return Math.max(0, Math.floor(diffMs / 60000));
   };
 
   const fetchQueue = async () => {
     try {
       setLoading(true);
-      const response = await axios.get(`${API_URL}/patients/queue`);
-      setQueueData(response.data);
+      // Today's visit queue from appointments (not patient registration)
+      const response = await axios.get(`${API_URL}/appointments`, {
+        params: { date: todayParam() },
+      });
+      const rows: QueueAppointment[] = (response.data || []).filter(
+        (a: QueueAppointment) => QUEUE_STATUSES.has((a.status || '').toLowerCase())
+      );
+      setQueueData(rows);
     } catch (error: any) {
-      console.error("Failed to fetch queue:", error.response?.data || error.message);
+      console.error('Failed to fetch queue:', error.response?.data || error.message);
+      setQueueData([]);
     } finally {
       setLoading(false);
     }
@@ -59,17 +94,32 @@ const PatientQueue = () => {
     }, [])
   );
 
+  const updateStatus = async (appointmentId: number, status: string) => {
+    try {
+      setUpdatingId(appointmentId);
+      await axios.patch(`${API_URL}/appointments/${appointmentId}/status`, { status });
+      await fetchQueue();
+    } catch (error: any) {
+      const detail = error.response?.data?.detail || 'Could not update status.';
+      Alert.alert('Update Failed', String(detail));
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
   const filteredQueue = queueData.filter((item) => {
     const label = statusLabel(item.status);
     const matchesTab = activeTab === 'All' || label === activeTab;
     const q = searchQuery.toLowerCase();
     const matchesSearch =
-      item.name.toLowerCase().includes(q) ||
-      (item.patient_code || '').toLowerCase().includes(q);
+      (item.patient_name || '').toLowerCase().includes(q) ||
+      (item.patient_code || '').toLowerCase().includes(q) ||
+      (item.queue_token || '').toLowerCase().includes(q) ||
+      (item.doctor_name || '').toLowerCase().includes(q);
     return matchesTab && matchesSearch;
   });
 
-  const waitingCount = queueData.filter((p) => statusLabel(p.status) === 'Waiting').length;
+  const waitingCount = queueData.filter((p) => (p.status || '').toLowerCase() === 'waiting').length;
 
   return (
     <SafeAreaView style={{ flex: 1, height: screenHeight }} className="bg-white">
@@ -117,7 +167,7 @@ const PatientQueue = () => {
           <View className="flex-1 bg-slate-50/80 border border-slate-200 rounded-2xl flex-row items-center px-4 py-1">
             <MaterialCommunityIcons name="magnify" size={20} color="#94A3B8" />
             <TextInput
-              placeholder="Search patient name or ID..."
+              placeholder="Search token, name, or doctor..."
               placeholderTextColor="#94A3B8"
               value={searchQuery}
               onChangeText={setSearchQuery}
@@ -158,71 +208,140 @@ const PatientQueue = () => {
           ) : filteredQueue.length > 0 ? (
             filteredQueue.map((item) => {
               const label = statusLabel(item.status);
-              const waitMins = getWaitMinutes(item.created_at);
+              const waitMins = getWaitMinutes(item.scheduled_time || item.created_at);
+              const busy = updatingId === item.appointment_id;
+
               return (
                 <View
-                  key={item.patient_id}
-                  className="w-full bg-white border border-slate-100 p-4 rounded-2xl flex-row justify-between items-start shadow-sm"
+                  key={item.appointment_id}
+                  className="w-full bg-white border border-slate-100 p-4 rounded-2xl shadow-sm"
                 >
-                  {/* Left Section: Token & Details */}
-                  <View className="flex-row items-start gap-x-4 flex-1">
-                    <View className="bg-teal-50/70 border border-teal-100 px-3 py-2 rounded-xl items-center justify-center min-w-[55px]">
-                      <Text className="text-xs font-black text-teal-600 tracking-wide">
-                        {item.patient_code || '—'}
-                      </Text>
-                    </View>
+                  <View className="flex-row justify-between items-start">
+                    {/* Left: Queue token + details */}
+                    <View className="flex-row items-start gap-x-4 flex-1">
+                      <View className="bg-teal-50/70 border border-teal-100 px-3 py-2 rounded-xl items-center justify-center min-w-[72px]">
+                        <Text className="text-[9px] font-bold text-teal-500 uppercase">Token</Text>
+                        <Text className="text-[11px] font-black text-teal-700 tracking-wide mt-0.5">
+                          {item.queue_token || '—'}
+                        </Text>
+                      </View>
 
-                    <View className="flex-1 pr-2">
-                      <Text className="text-base font-bold text-slate-800">{item.name}</Text>
+                      <View className="flex-1 pr-2">
+                        <Text className="text-base font-bold text-slate-800">
+                          {item.patient_name || 'Patient'}
+                        </Text>
+                        <Text className="text-xs text-slate-400 font-medium mt-0.5">
+                          {item.patient_code || '—'} · {formatTime(item.scheduled_time)}
+                        </Text>
 
-                      <Text className="text-xs text-slate-400 font-medium mt-0.5">
-                        {item.age ? `${item.age}y` : '—'} • {item.gender || '—'}
-                      </Text>
-
-                      <View className="flex-row items-center flex-wrap gap-x-2 gap-y-1.5 mt-3">
-                        <View className="bg-teal-50 border border-teal-100 px-2.5 py-0.5 rounded-lg">
-                          <Text className="text-[10px] font-bold text-teal-700">
-                            {item.department || 'Unassigned'}
-                          </Text>
+                        <View className="flex-row items-center flex-wrap gap-x-2 gap-y-1.5 mt-3">
+                          {item.doctor_name ? (
+                            <View className="bg-teal-50 border border-teal-100 px-2.5 py-0.5 rounded-lg">
+                              <Text className="text-[10px] font-bold text-teal-700">
+                                {item.doctor_name}
+                              </Text>
+                            </View>
+                          ) : null}
                         </View>
-                        {item.doctor_name && (
-                          <Text className="text-[11px] font-medium text-slate-400">
-                            {item.doctor_name}
-                          </Text>
-                        )}
                       </View>
                     </View>
-                  </View>
 
-                  {/* Right Section: Status & Waiting Time */}
-                  <View className="items-end justify-between min-h-[75px]">
-                    <View
-                      className={`flex-row items-center gap-x-1 px-2.5 py-1 rounded-full border ${
-                        label === 'In Progress'
-                          ? 'bg-teal-50 border-teal-200'
-                          : 'bg-amber-50 border-amber-200'
-                      }`}
-                    >
-                      <MaterialCommunityIcons
-                        name={label === 'In Progress' ? 'play-circle-outline' : 'clock-outline'}
-                        size={13}
-                        color={label === 'In Progress' ? '#0D9488' : '#F59E0B'}
-                      />
-                      <Text
-                        className={`text-[10px] font-bold ${
-                          label === 'In Progress' ? 'text-teal-600' : 'text-amber-600'
+                    {/* Right: Status */}
+                    <View className="items-end">
+                      <View
+                        className={`flex-row items-center gap-x-1 px-2.5 py-1 rounded-full border ${
+                          label === 'In Progress'
+                            ? 'bg-teal-50 border-teal-200'
+                            : label === 'Done'
+                              ? 'bg-emerald-50 border-emerald-200'
+                              : 'bg-amber-50 border-amber-200'
                         }`}
                       >
-                        {label}
-                      </Text>
-                    </View>
+                        <MaterialCommunityIcons
+                          name={
+                            label === 'In Progress'
+                              ? 'play-circle-outline'
+                              : label === 'Done'
+                                ? 'check-circle-outline'
+                                : 'clock-outline'
+                          }
+                          size={13}
+                          color={
+                            label === 'In Progress'
+                              ? '#0D9488'
+                              : label === 'Done'
+                                ? '#059669'
+                                : '#F59E0B'
+                          }
+                        />
+                        <Text
+                          className={`text-[10px] font-bold ${
+                            label === 'In Progress'
+                              ? 'text-teal-600'
+                              : label === 'Done'
+                                ? 'text-emerald-600'
+                                : 'text-amber-600'
+                          }`}
+                        >
+                          {label}
+                        </Text>
+                      </View>
 
-                    {label === 'Waiting' && waitMins !== null ? (
-                      <Text className="text-[10px] font-medium text-slate-400 mt-1">
-                        {waitMins} min wait
-                      </Text>
-                    ) : null}
+                      {label === 'Waiting' && waitMins !== null ? (
+                        <Text className="text-[10px] font-medium text-slate-400 mt-1">
+                          {waitMins} min wait
+                        </Text>
+                      ) : null}
+                    </View>
                   </View>
+
+                  {/* Status actions (backend PATCH transitions) */}
+                  {item.status === 'waiting' || item.status === 'in_progress' ? (
+                    <View className="flex-row gap-x-2 mt-3 pt-3 border-t border-slate-50">
+                      {item.status === 'waiting' ? (
+                        <TouchableOpacity
+                          disabled={busy}
+                          onPress={() => updateStatus(item.appointment_id, 'in_progress')}
+                          className="flex-1 bg-teal-600 py-2 rounded-xl items-center"
+                        >
+                          {busy ? (
+                            <ActivityIndicator color="#fff" size="small" />
+                          ) : (
+                            <Text className="text-white text-xs font-bold">Start</Text>
+                          )}
+                        </TouchableOpacity>
+                      ) : null}
+                      {item.status === 'in_progress' ? (
+                        <TouchableOpacity
+                          disabled={busy}
+                          onPress={() => updateStatus(item.appointment_id, 'completed')}
+                          className="flex-1 bg-emerald-600 py-2 rounded-xl items-center"
+                        >
+                          {busy ? (
+                            <ActivityIndicator color="#fff" size="small" />
+                          ) : (
+                            <Text className="text-white text-xs font-bold">Complete</Text>
+                          )}
+                        </TouchableOpacity>
+                      ) : null}
+                      <TouchableOpacity
+                        disabled={busy}
+                        onPress={() =>
+                          Alert.alert('Cancel visit?', 'This appointment will be cancelled.', [
+                            { text: 'No', style: 'cancel' },
+                            {
+                              text: 'Cancel',
+                              style: 'destructive',
+                              onPress: () => updateStatus(item.appointment_id, 'cancelled'),
+                            },
+                          ])
+                        }
+                        className="px-4 py-2 rounded-xl border border-slate-200 items-center justify-center"
+                      >
+                        <Text className="text-slate-500 text-xs font-bold">Cancel</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : null}
                 </View>
               );
             })

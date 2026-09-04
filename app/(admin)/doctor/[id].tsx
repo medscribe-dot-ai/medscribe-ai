@@ -3,24 +3,11 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Constants from 'expo-constants';
 import { colors } from '../../../src/theme/colors';
+import { API_URL } from '../../../src/config/api';
 
-const FALLBACK_API_URL = 'https://medscribeai-pzqu.onrender.com';
 const FETCH_TIMEOUT_MS = 15000;
 
-function resolveApiUrl(): string {
-    const hostUri = Constants.expoConfig?.hostUri;
-    if (__DEV__ && hostUri) {
-        const host = hostUri.split(':')[0];
-        if (host) return `http://${host}:8000`;
-    }
-
-    const envUrl = process.env.EXPO_PUBLIC_API_URL?.trim();
-    if (envUrl) return envUrl.replace(/\/$/, '');
-
-    return FALLBACK_API_URL;
-}
 
 export default function DoctorDetails() {
     const router = useRouter();
@@ -51,7 +38,7 @@ export default function DoctorDetails() {
         const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
         try {
-            const apiUrl = resolveApiUrl();
+            const apiUrl = API_URL;
             const response = await fetch(`${apiUrl}/doctors/${doctorId}`, {
                 signal: controller.signal,
             });
@@ -132,7 +119,7 @@ export default function DoctorDetails() {
                         const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
                         try {
-                            const apiUrl = resolveApiUrl();
+                            const apiUrl = API_URL;
                             const response = await fetch(`${apiUrl}/doctors/${doctor.doctor_id}`, {
                                 method: 'DELETE',
                                 signal: controller.signal,

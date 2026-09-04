@@ -4,9 +4,9 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
+import { API_URL } from '../../src/config/api';
 
 const { height: screenHeight } = Dimensions.get('window');
-const API_URL = "https://medscribeai-pzqu.onrender.com";
 
 const RegisterPatient = () => {
   const router = useRouter();
@@ -23,6 +23,7 @@ const RegisterPatient = () => {
   // Success modal state
   const [showSuccess, setShowSuccess] = useState(false);
   const [registeredPatient, setRegisteredPatient] = useState<{
+    patient_id: number;
     name: string;
     patient_code: string;
     username: string;
@@ -78,6 +79,7 @@ const RegisterPatient = () => {
 
       setSubmitting(false);
       setRegisteredPatient({
+        patient_id: response.data.patient_id,
         name: response.data.name,
         patient_code: response.data.patient_code,
         username: response.data.username,
@@ -255,13 +257,13 @@ const RegisterPatient = () => {
 
             <Text className="text-lg font-black text-slate-900 text-center">Patient Registered</Text>
             <Text className="text-sm text-slate-500 text-center mt-1">
-              {registeredPatient?.name} has been added to the queue.
+              {registeredPatient?.name} is registered. Next: book their appointment.
             </Text>
 
-            {/* TOKEN BADGE */}
+            {/* PATIENT CODE */}
             <View className="mt-6 items-center">
               <Text className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">
-                Patient Token
+                Patient Code
               </Text>
               <View className="bg-teal-50 border-2 border-dashed border-teal-200 px-6 py-3 rounded-2xl mt-2">
                 <Text className="text-2xl font-black text-teal-700 tracking-wider">
@@ -301,16 +303,35 @@ const RegisterPatient = () => {
             {/* ACTIONS */}
             <View className="w-full gap-y-3 mt-7">
               <TouchableOpacity
-                onPress={handleRegisterAnother}
+                onPress={() => {
+                  if (!registeredPatient?.patient_id) return;
+                  setShowSuccess(false);
+                  router.push({
+                    pathname: '/(receptionist)/book-appointment',
+                    params: {
+                      patient_id: String(registeredPatient.patient_id),
+                      name: registeredPatient.name,
+                      patient_code: registeredPatient.patient_code,
+                    },
+                  });
+                }}
                 className="w-full bg-teal-600 p-4 rounded-2xl items-center flex-row justify-center gap-x-2"
               >
-                <MaterialCommunityIcons name="account-plus-outline" size={18} color="#FFFFFF" />
-                <Text className="text-white font-bold text-sm">Register Another</Text>
+                <MaterialCommunityIcons name="calendar-plus" size={18} color="#FFFFFF" />
+                <Text className="text-white font-bold text-sm">Book Appointment</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={handleRegisterAnother}
+                className="w-full bg-slate-50 border border-slate-200 p-4 rounded-2xl items-center flex-row justify-center gap-x-2"
+              >
+                <MaterialCommunityIcons name="account-plus-outline" size={18} color="#475569" />
+                <Text className="text-slate-700 font-bold text-sm">Register Another</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
                 onPress={handleGoToDashboard}
-                className="w-full bg-slate-50 border border-slate-200 p-4 rounded-2xl items-center flex-row justify-center gap-x-2"
+                className="w-full bg-white border border-slate-200 p-4 rounded-2xl items-center flex-row justify-center gap-x-2"
               >
                 <MaterialCommunityIcons name="view-dashboard-outline" size={18} color="#475569" />
                 <Text className="text-slate-700 font-bold text-sm">Go to Dashboard</Text>
