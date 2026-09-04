@@ -114,7 +114,7 @@ export default function DoctorDetails() {
         const routeDoctorId = Array.isArray(id) ? id[0] : id;
 
         if (!doctor?.doctor_id || String(doctor.doctor_id) !== String(routeDoctorId)) {
-            Alert.alert('Delete Failed', 'Doctor record mismatch. Please reload and try again.');
+            Alert.alert('Delete Failed', 'The doctor record could not be verified. Please refresh and try again.');
             return;
         }
 

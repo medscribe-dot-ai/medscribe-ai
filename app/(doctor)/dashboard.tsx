@@ -50,8 +50,8 @@ export default function DoctorDashboard() {
   }, []);
 
   const handleLogout = async () => {
-    Alert.alert("Logout", "Kiya aap waqai exit karna chahte hain?", [
-      { text: "Nahi", style: "cancel" },
+    Alert.alert("Logout", "Are you sure you want to log out?", [
+      { text: "Cancel", style: "cancel" },
       { text: "Logout", style: "destructive", onPress: async () => {
           await AsyncStorage.removeItem('user_data');
           router.replace('/(auth)/login'); 
@@ -63,7 +63,7 @@ export default function DoctorDashboard() {
   if (loading) return (
     <View style={{ backgroundColor: themeColors.background }} className="flex-1 justify-center items-center">
       <ActivityIndicator size="large" color={themeColors.primary} />
-      <Text style={{ color: themeColors.mutedText }} className="mt-4 font-medium">Dashboard load ho raha hai...</Text>
+      <Text style={{ color: themeColors.mutedText }} className="mt-4 font-medium">Loading dashboard...</Text>
     </View>
   );
 

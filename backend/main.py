@@ -482,7 +482,7 @@ async def call_colab_in_background(consultation_id: int, audio_url: str, bucket_
         if consultation:
             consultation.status           = "processing"
             consultation.processing_step  = "started"
-            consultation.progress_message = "Connecting to AI pipeline..."
+            consultation.progress_message = "Connecting to the AI processing service..."
             consultation.updated_at       = datetime.datetime.utcnow()
             db.commit()
 
@@ -502,7 +502,7 @@ async def call_colab_in_background(consultation_id: int, audio_url: str, bucket_
     except httpx.TimeoutException:
         if consultation:
             consultation.status        = "error"
-            consultation.error_message = "Processing timeout - Colab took too long"
+            consultation.error_message = "Processing is taking longer than expected. Please try again shortly."
             consultation.updated_at    = datetime.datetime.utcnow()
             db.commit()
 
@@ -593,7 +593,7 @@ def get_soap_note(consultation_id: int, db: Session = Depends(get_db)):
     if consultation.status != "completed":
         raise HTTPException(
             status_code=202,
-            detail=f"Still processing: {consultation.status}"
+            detail="Your consultation is still being processed. Please wait."
         )
 
     return {
@@ -619,7 +619,7 @@ def get_soap_report_detail(consultation_id: int, db: Session = Depends(get_db)):
     if not report:
         raise HTTPException(
             status_code=404,
-            detail="SOAP report not found. Consultation abhi approved nahi hua ya exist nahi karta."
+            detail="SOAP report not found. The consultation has not been approved yet, or it does not exist."
         )
 
     return {
@@ -661,14 +661,14 @@ def approve_soap_note(
     if consultation.status not in ("pending_approval", "completed"):
         raise HTTPException(
             status_code=400,
-            detail=f"Cannot approve — current status is: {consultation.status}"
+            detail="The SOAP note cannot be approved in its current status."
         )
 
     final_soap = request.approved_soap
     consultation.status           = "completed"
     consultation.soap_note        = final_soap
     consultation.processing_step  = "completed"
-    consultation.progress_message = "SOAP Note approved by doctor ✅"
+    consultation.progress_message = "SOAP note approved by the doctor."
     if request.doctor_id:
         consultation.doctor_id = request.doctor_id
     consultation.updated_at = datetime.datetime.utcnow()
@@ -705,7 +705,7 @@ def approve_soap_note(
     return {
         "status":          "completed",
         "consultation_id": consultation_id,
-        "message":         "SOAP note approved, finalized, and saved to soap_reports ✅",
+        "message":         "SOAP note approved, finalized, and saved successfully.",
         "soap_sections": {
             "subjective": parsed["subjective"],
             "objective":  parsed["objective"],

@@ -114,7 +114,7 @@ export default function ReceptionistDetails() {
         const routeId = Array.isArray(id) ? id[0] : id;
 
         if (!receptionist?.receptionist_id || String(receptionist.receptionist_id) !== String(routeId)) {
-            Alert.alert('Delete Failed', 'Receptionist record mismatch. Please reload and try again.');
+            Alert.alert('Delete Failed', 'The receptionist record could not be verified. Please refresh and try again.');
             return;
         }
 

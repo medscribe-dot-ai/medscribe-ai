@@ -51,7 +51,7 @@ export default function PatientDetail() {
 
         {!patient ? (
           <Text style={{ marginTop: 20, fontSize: 18, fontWeight: "900", color: colors.darkText }}>
-            Patient not found (ID: {String(id)})
+            Patient record not found.
           </Text>
         ) : (
           <View style={{ marginTop: 20, backgroundColor: "white", padding: 16, borderRadius: 18 }}>

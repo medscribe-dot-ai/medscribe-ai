@@ -179,13 +179,13 @@ export default function AddReceptionist() {
                     data = JSON.parse(responseText);
                 } catch {
                     setLoading(false);
-                    Alert.alert('Error', responseText || 'Unknown error');
+                    Alert.alert('Error', responseText || 'Something went wrong. Please try again.');
                     return;
                 }
 
                 setLoading(false);
                 if (response.ok) {
-                    Alert.alert('Updated!', 'Receptionist updated successfully.', [
+                    Alert.alert('Receptionist updated successfully.', 'Receptionist updated successfully.', [
                         { text: 'OK', onPress: () => router.replace('/(admin)/receptionist') },
                     ]);
                 } else {
@@ -217,13 +217,13 @@ export default function AddReceptionist() {
                 data = JSON.parse(responseText);
             } catch {
                 setLoading(false);
-                Alert.alert('Error', responseText || 'Unknown error');
+                Alert.alert('Error', responseText || 'Something went wrong. Please try again.');
                 return;
             }
 
             setLoading(false);
             if (response.ok) {
-                Alert.alert('Success!', 'Receptionist registered successfully!', [
+                Alert.alert('Receptionist added successfully.', 'Receptionist registered successfully!', [
                     { text: 'OK', onPress: () => router.replace('/(admin)/receptionist') },
                 ]);
             } else {
@@ -238,7 +238,7 @@ export default function AddReceptionist() {
         } catch (error) {
             setLoading(false);
             console.log('Fetch error:', error);
-            Alert.alert('Connection Error', 'Cannot connect to server. Please check internet and try again.');
+            Alert.alert('Connection Error', 'Unable to connect to the server. Please check your internet connection and try again.');
         }
     };
 
@@ -252,10 +252,10 @@ export default function AddReceptionist() {
                     <View className="flex-1">
                         <Text className="text-xl font-bold">{isEditMode ? 'Edit Receptionist' : 'Register Receptionist'}</Text>
                         {!serverReady && (
-                            <Text className="text-xs text-orange-400">Connecting to server...</Text>
+                            <Text className="text-xs text-orange-400">Connecting to the server...</Text>
                         )}
                         {serverReady && (
-                            <Text className="text-xs text-green-500">Server connected</Text>
+                            <Text className="text-xs text-green-500">Connected successfully.</Text>
                         )}
                     </View>
                 </View>

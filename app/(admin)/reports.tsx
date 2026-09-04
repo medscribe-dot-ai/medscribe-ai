@@ -35,7 +35,7 @@ export default function ReportsScreen() {
         {/* Summary Mini Cards */}
         <View className="flex-row justify-between mb-8">
           <SummaryBox label="Consultations" value="156" icon="message-video" />
-          <SummaryBox label="Reports Gen" value="89" icon="file-document-outline" />
+          <SummaryBox label="Reports" value="89" icon="file-document-outline" />
         </View>
 
         {/* Visual Analytics Section */}

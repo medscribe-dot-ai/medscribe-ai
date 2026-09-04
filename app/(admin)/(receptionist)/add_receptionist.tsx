@@ -141,7 +141,7 @@ export default function AddReceptionist() {
             }
 
             if (response.ok) {
-                showAlert("Success 🎉", "Receptionist registered successfully!", () => router.back());
+                showAlert("Receptionist added successfully.", "Receptionist registered successfully!", () => router.back());
             } else {
                 let errorMsg = "Could not save receptionist.";
                 if (result.detail) {

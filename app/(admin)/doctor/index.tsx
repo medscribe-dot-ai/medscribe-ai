@@ -95,7 +95,7 @@ export default function DoctorsList() {
                     ListEmptyComponent={() => (
                         <View className="items-center mt-20">
                             <MaterialCommunityIcons name="account-off-outline" size={60} color="#CBD5E1" />
-                            <Text className="text-slate-400 mt-4">No doctors found on server.</Text>
+                            <Text className="text-slate-400 mt-4">No doctors found.</Text>
                         </View>
                     )}
                     renderItem={({ item }) => {

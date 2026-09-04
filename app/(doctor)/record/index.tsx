@@ -2,9 +2,7 @@
 import { supabase } from '@/src/lib/supabase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { decode } from 'base64-arraybuffer';
 import * as DocumentPicker from 'expo-document-picker';
-import * as FileSystem from 'expo-file-system/legacy';
 import { useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -28,13 +26,13 @@ type UploadStatus =
 
 const STATUS_MESSAGES: Record<UploadStatus, string> = {
   idle: '',
-  uploading: 'Audio upload ho rahi hai...',
-  queued: 'Queue mein hai — AI processing shuru hone wali hai...',
-  processing: 'AI consultation analyze kar raha hai...',
-  pending_approval: 'AI ne SOAP note tayyar kar dia — Doctor review karyein',
-  completed: 'SOAP Note approved aur finalize ho gaya',
-  rejected: 'SOAP Note reject ho gaya',
-  error: 'Processing mein masla aaya',
+  uploading: 'Uploading audio...',
+  queued: 'In queue — AI processing will begin shortly...',
+  processing: 'Analyzing the consultation...',
+  pending_approval: 'SOAP note is ready for doctor review',
+  completed: 'SOAP note approved and finalized',
+  rejected: 'SOAP note rejected',
+  error: 'Processing failed. Please try again.',
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -694,7 +692,7 @@ function LabelLegend() {
 //   ERROR MESSAGE HELPER
 // ─────────────────────────────────────────────────────────────
 function getErrorMessage(err: unknown): string {
-  if (err == null) return 'Unknown error';
+  if (err == null) return 'Something went wrong. Please try again.';
   if (typeof err === 'string' && err.trim()) return err;
   if (err instanceof Error && err.message) return err.message;
   if (typeof err === 'object') {
@@ -716,58 +714,38 @@ function getErrorMessage(err: unknown): string {
   return String(err);
 }
 
-function isTransientPickerUri(uri: string): boolean {
-  return uri.includes('/cache/DocumentPicker/') || uri.includes('DocumentPicker');
-}
+async function getPickedAudioBytes(picked: DocumentPicker.DocumentPickerAsset): Promise<{
+  bytes: ArrayBuffer;
+  name: string;
+  mimeType: string;
+  size?: number;
+  uri: string;
+}> {
+  let bytes: ArrayBuffer;
 
-async function persistPickedAudio(picked: { uri: string; name?: string; mimeType?: string; size?: number }) {
-  const pickerUri = picked.uri;
-  const pickerInfo = await FileSystem.getInfoAsync(pickerUri);
-  if (!pickerInfo.exists) {
-    throw new Error(`Picked file does not exist at ${pickerUri}`);
+  if (Platform.OS === 'web') {
+    if (!picked.file) {
+      throw new Error('The selected audio file could not be accessed. Please select the file again.');
+    }
+    bytes = await picked.file.arrayBuffer();
+  } else {
+    const res = await fetch(picked.uri);
+    if (!res.ok) {
+      throw new Error('Unable to read the selected audio file. Please select the file again.');
+    }
+    bytes = await res.arrayBuffer();
   }
 
-  // Read immediately while Android still lets us open the picker cache file.
-  // copyAsync is not enough — it can leave a handle to the same cache path.
-  const base64 = await FileSystem.readAsStringAsync(pickerUri, {
-    encoding: FileSystem.EncodingType.Base64,
-  });
-  if (!base64) {
-    throw new Error(`Picked file could not be read at ${pickerUri}`);
+  if (!bytes.byteLength) {
+    throw new Error('The selected audio file appears to be empty. Please select another file.');
   }
 
-  if (!FileSystem.documentDirectory) {
-    throw new Error('FileSystem.documentDirectory is not available');
-  }
-
-  const uploadsDir = `${FileSystem.documentDirectory}uploads/`;
-  const dirInfo = await FileSystem.getInfoAsync(uploadsDir);
-  if (!dirInfo.exists) {
-    await FileSystem.makeDirectoryAsync(uploadsDir, { intermediates: true });
-  }
-
-  const ext = (picked.name?.split('.').pop() || 'wav').replace(/[^a-zA-Z0-9]/g, '') || 'wav';
-  const stableUri = `${uploadsDir}${Date.now()}_consultation.${ext}`;
-
-  await FileSystem.writeAsStringAsync(stableUri, base64, {
-    encoding: FileSystem.EncodingType.Base64,
-  });
-
-  const writtenInfo = await FileSystem.getInfoAsync(stableUri);
-  if (!writtenInfo.exists) {
-    throw new Error(`Copied file does not exist at ${stableUri}`);
-  }
-  if (isTransientPickerUri(stableUri)) {
-    throw new Error(`Failed to persist file out of DocumentPicker cache: ${stableUri}`);
-  }
-
-  console.log('Persisted audio from', pickerUri, 'to', stableUri);
   return {
-    uri: stableUri,
-    base64,
-    name: picked.name || `consultation.${ext}`,
-    mimeType: picked.mimeType || 'audio/wav',
-    size: picked.size,
+    bytes,
+    name: picked.name || picked.file?.name || 'consultation.mp3',
+    mimeType: picked.file?.type || picked.mimeType || 'audio/mpeg',
+    size: picked.size ?? picked.file?.size ?? bytes.byteLength,
+    uri: picked.uri,
   };
 }
 
@@ -793,7 +771,7 @@ export default function VoiceRecordingScreen() {
   const [isRejecting, setIsRejecting] = useState(false);
 
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const audioBase64Ref = useRef<string | null>(null);
+  const audioBytesRef = useRef<ArrayBuffer | null>(null);
 
   useEffect(() => () => { if (pollingRef.current) clearInterval(pollingRef.current); }, []);
 
@@ -817,17 +795,17 @@ export default function VoiceRecordingScreen() {
       const result = await DocumentPicker.getDocumentAsync({ type: 'audio/*', copyToCacheDirectory: true });
       if (result.canceled || !result.assets?.[0]) return;
 
-      const persisted = await persistPickedAudio(result.assets[0]);
-      audioBase64Ref.current = persisted.base64;
+      const picked = await getPickedAudioBytes(result.assets[0]);
+      audioBytesRef.current = picked.bytes;
       setSelectedFile({
-        name: persisted.name,
-        mimeType: persisted.mimeType,
-        size: persisted.size,
-        uri: persisted.uri,
+        name: picked.name,
+        mimeType: picked.mimeType,
+        size: picked.size,
+        uri: picked.uri,
       });
       resetState(false);
     } catch (err) {
-      audioBase64Ref.current = null;
+      audioBytesRef.current = null;
       const message = getErrorMessage(err);
       console.log('File pick error:', message, err);
       Alert.alert('Error', message);
@@ -851,12 +829,12 @@ export default function VoiceRecordingScreen() {
           if (pollingRef.current) clearInterval(pollingRef.current);
         } else if (data.status === 'error') {
           if (pollingRef.current) clearInterval(pollingRef.current);
-          Alert.alert('Processing Error', data.error_message || 'Kuch galat ho gaya');
+          Alert.alert('Processing Error', data.error_message || 'Something went wrong. Please try again.');
         }
       } catch (e) {
         const message = getErrorMessage(e);
         console.log('Polling error:', message, e);
-        Alert.alert('Polling Error', message);
+        Alert.alert('Processing Status Error', message);
       }
     }, 7000);
   };
@@ -881,7 +859,7 @@ export default function VoiceRecordingScreen() {
     if (!selectedFile) return;
     setUploadStatus('uploading');
     setCurrentStep('uploading');
-    setProgressMessage('Supabase Storage mein upload ho raha hai...');
+    setProgressMessage('Uploading audio to storage...');
     setProgressPercent(10);
     let uploadedPath: string | null = null;
     try {
@@ -889,25 +867,11 @@ export default function VoiceRecordingScreen() {
       const fileName = `${Date.now()}_consultation.${fileExt}`;
       const filePath = `consultations/${fileName}`;
 
-      let base64 = audioBase64Ref.current;
-      if (!base64) {
-        if (!selectedFile.uri || isTransientPickerUri(selectedFile.uri)) {
-          throw new Error(`Picked file does not exist at ${selectedFile.uri}`);
-        }
-        const fileInfo = await FileSystem.getInfoAsync(selectedFile.uri);
-        if (!fileInfo.exists) {
-          throw new Error(`Picked file does not exist at ${selectedFile.uri}`);
-        }
-        base64 = await FileSystem.readAsStringAsync(selectedFile.uri, {
-          encoding: FileSystem.EncodingType.Base64,
-        });
-        audioBase64Ref.current = base64;
-      }
-      if (!base64) {
-        throw new Error(`Picked file could not be read at ${selectedFile.uri}`);
+      const audioBytes = audioBytesRef.current;
+      if (!audioBytes?.byteLength) {
+        throw new Error('Picked audio is no longer available. Please select the file again.');
       }
 
-      const audioBytes = decode(base64);
       console.log('Upload metadata', {
         name: selectedFile.name,
         mimeType: selectedFile.mimeType,
@@ -916,9 +880,6 @@ export default function VoiceRecordingScreen() {
         byteLength: audioBytes.byteLength,
         filePath,
       });
-      if (!audioBytes.byteLength) {
-        throw new Error('Audio file is empty after read');
-      }
 
       const { error: storageError } = await supabase.storage
         .from('clinical-audios')
@@ -933,7 +894,7 @@ export default function VoiceRecordingScreen() {
 
       const { data: { publicUrl } } = supabase.storage.from('clinical-audios').getPublicUrl(filePath);
       if (!publicUrl) {
-        throw new Error('Storage upload succeeded but no public URL was returned');
+        throw new Error('The audio was uploaded, but its storage URL could not be retrieved.');
       }
       console.log('Storage public URL', publicUrl);
 
@@ -945,7 +906,7 @@ export default function VoiceRecordingScreen() {
       }
 
       setUploadStatus('queued');
-      setProgressMessage('AI pipeline mein queue ho gaya...');
+      setProgressMessage('Queued for AI processing...');
       setProgressPercent(30);
       const backendRes = await fetch(`${BACKEND_URL}/consultation/process-audio`, {
         method: 'POST',
@@ -960,12 +921,12 @@ export default function VoiceRecordingScreen() {
       if (!backendRes.ok) {
         const errBody = await backendRes.json().catch(() => null);
         throw new Error(
-          getErrorMessage(errBody) || `Backend process-audio failed (${backendRes.status})`
+          getErrorMessage(errBody) || `Unable to start audio processing (${backendRes.status}). Please try again.`
         );
       }
       const backendData = await backendRes.json();
       if (backendData.consultation_id == null) {
-        throw new Error('Backend did not return consultation_id');
+        throw new Error('The consultation could not be created. Please try again.');
       }
       console.log('Consultation queued', backendData.consultation_id);
       setConsultationId(backendData.consultation_id);
@@ -992,12 +953,12 @@ export default function VoiceRecordingScreen() {
       });
       if (!res.ok) {
         const errBody = await res.json().catch(() => null);
-        throw new Error(getErrorMessage(errBody) || `Approve call failed (${res.status})`);
+        throw new Error(getErrorMessage(errBody) || `Unable to approve the SOAP note (${res.status}). Please try again.`);
       }
       setUploadStatus('completed');
       setSoapRaw(finalSoap);
       setEditMode(false);
-      Alert.alert('Approved!', 'SOAP Note finalize ho gaya database mein.');
+      Alert.alert('Approved!', 'SOAP note saved successfully.');
     } catch (e) {
       const message = getErrorMessage(e);
       console.log('Approve error:', message, e);
@@ -1008,7 +969,7 @@ export default function VoiceRecordingScreen() {
   // ── Reject ────────────────────────────────────────────────
   const handleReject = async () => {
     if (!consultationId) return;
-    Alert.alert('SOAP Note Reject Karna?', 'Kya aap waqai ye SOAP Note reject karna chahte hain?', [
+    Alert.alert('Reject SOAP Note?', 'Are you sure you want to reject this SOAP note?', [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Reject', style: 'destructive', onPress: async () => {
         setIsRejecting(true);
@@ -1016,7 +977,7 @@ export default function VoiceRecordingScreen() {
           const res = await fetch(`${BACKEND_URL}/consultation/${consultationId}/reject?reason=Doctor%20rejected%20from%20app`, { method: 'POST' });
           if (!res.ok) {
             const errBody = await res.json().catch(() => null);
-            throw new Error(getErrorMessage(errBody) || `Reject failed (${res.status})`);
+            throw new Error(getErrorMessage(errBody) || `Unable to reject the SOAP note (${res.status}). Please try again.`);
           }
           setUploadStatus('rejected');
           setEditMode(false);
@@ -1034,7 +995,7 @@ export default function VoiceRecordingScreen() {
   const resetState = (clearFile = true) => {
     if (clearFile) {
       setSelectedFile(null);
-      audioBase64Ref.current = null;
+      audioBytesRef.current = null;
     }
     setUploadStatus('idle');
     setSoapRaw('');
@@ -1120,7 +1081,7 @@ export default function VoiceRecordingScreen() {
             {!isActive && !showReview && (
               <TouchableOpacity onPress={() => {
                 setSelectedFile(null);
-                audioBase64Ref.current = null;
+                audioBytesRef.current = null;
               }}>
                 <MaterialCommunityIcons name="close-circle" size={24} color="#ef4444" />
               </TouchableOpacity>

@@ -140,7 +140,7 @@ const ReceptionistDashboard = () => {
                   <MaterialCommunityIcons name="account-multiple-outline" size={18} color="#64748B" />
                 </View>
               </View>
-              <Text className="text-[11px] font-medium text-slate-400 mt-2">Across all depts</Text>
+              <Text className="text-[11px] font-medium text-slate-400 mt-2">Across all departments</Text>
             </View>
 
             <View className="w-[48%] bg-orange-50/50 p-4 rounded-2xl border border-orange-100/70 justify-between min-h-[115px]">

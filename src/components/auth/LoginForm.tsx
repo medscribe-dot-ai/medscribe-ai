@@ -96,9 +96,9 @@ const LoginForm = () => {
           router.replace('/(receptionist)/dashboard');
         } else if (role === 'patient') {
           // TODO: router.replace('/(patient)/dashboard') — route not yet created
-          Alert.alert("Login Successful", "Patient portal is being set up. Your credentials are valid.");
+          Alert.alert("Login Successful", "Your credentials are valid. The patient portal is currently being set up.");
         } else {
-          Alert.alert("Access Denied", "Unauthorized role.");
+          Alert.alert("Access Denied", "You are not authorized to access this portal.");
         }
       } else {
         // Backend responded with 200 OK but status !== "success"
@@ -119,7 +119,7 @@ const LoginForm = () => {
         error.response?.data?.message ||
         (error.response?.status === 401 || error.response?.status === 403
           ? "Invalid email or password."
-          : "Server is waking up. Please try again in 30 seconds.");
+          : "The server is starting up. Please try again in a few moments.");
 
       Alert.alert("Login Failed", errorDetail);
     }
@@ -133,7 +133,7 @@ const LoginForm = () => {
         <View className="bg-orange-50 border border-orange-200 rounded-2xl p-3 flex-row items-center gap-x-2">
           <ActivityIndicator size="small" color="#F97316" />
           <Text className="text-orange-500 text-xs font-semibold">
-            Connecting to server... please wait
+            Connecting to the server...
           </Text>
         </View>
       )}
@@ -142,7 +142,7 @@ const LoginForm = () => {
         <View className="bg-green-50 border border-green-200 rounded-2xl p-3 flex-row items-center gap-x-2">
           <MaterialCommunityIcons name="check-circle" size={16} color="#22C55E" />
           <Text className="text-green-500 text-xs font-semibold">
-            Server connected ✅
+            Connected successfully.
           </Text>
         </View>
       )}

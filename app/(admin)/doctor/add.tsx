@@ -252,14 +252,14 @@ export default function AddDoctor() {
                 data = JSON.parse(responseText);
             } catch (e) {
                 setLoading(false);
-                Alert.alert("Error", responseText || "Unknown error");
+                Alert.alert("Error", responseText || "Something went wrong. Please try again.");
                 return;
             }
 
             if (response.ok) {
                 setLoading(false);
                 Alert.alert(
-                    "Success! ✅",
+                    "Doctor added successfully.",
                     "Doctor registered successfully!",
                     [{ text: "OK", onPress: () => router.push('/(admin)/doctor') }]
                 );
@@ -293,7 +293,7 @@ export default function AddDoctor() {
             console.log("Fetch error:", error);
             Alert.alert(
                 "Connection Error",
-                "Cannot connect to server. Please check internet and try again."
+                "Unable to connect to the server. Please check your internet connection and try again."
             );
         }
     };
@@ -308,10 +308,10 @@ export default function AddDoctor() {
                     <View className="flex-1">
                         <Text className="text-xl font-bold">{isEditMode ? 'Edit Doctor' : 'Register Doctor'}</Text>
                         {!serverReady && (
-                            <Text className="text-xs text-orange-400">⏳ Connecting to server...</Text>
+                            <Text className="text-xs text-orange-400">Connecting to the server...</Text>
                         )}
                         {serverReady && (
-                            <Text className="text-xs text-green-500">✅ Server connected</Text>
+                            <Text className="text-xs text-green-500">Connected successfully.</Text>
                         )}
                     </View>
                 </View>
@@ -486,7 +486,7 @@ export default function AddDoctor() {
                                     onBlur={() => setErrors({ ...errors, password: validatePassword(form.password) })}
                                     style={{ borderColor: errors.password ? '#EF4444' : undefined }}
                                     className="bg-slate-50 p-4 pl-12 rounded-2xl border border-slate-100 text-slate-800"
-                                    placeholder={isEditMode ? "Leave blank to keep same" : "Set password"}
+                                    placeholder={isEditMode ? "Leave blank to keep the current value." : "Set password"}
                                     placeholderTextColor="#CBD5E1"
                                 />
                                 <View className="absolute left-4 top-4">
