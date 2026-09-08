@@ -26,6 +26,17 @@ class DoctorCreate(BaseModel):
     schedule: Optional[Dict[str, str]] = None
 
 
+class DoctorUpdate(BaseModel):
+    name: Optional[str] = None
+    email: Optional[str] = None
+    username: Optional[str] = None
+    phone: Optional[str] = None
+    password: Optional[str] = None
+    specialization: Optional[str] = None
+    experience_years: Optional[int] = None
+    schedule: Optional[Dict[str, str]] = None
+
+
 class ReceptionistCreate(BaseModel):
     user_data: UserCreate
 

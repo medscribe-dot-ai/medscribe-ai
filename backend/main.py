@@ -380,6 +380,94 @@ def get_doctor(doctor_id: int, db: Session = Depends(get_db)):
     )
 
 
+@app.put("/doctors/{doctor_id}", response_model=schemas.DoctorDetailResponse)
+def update_doctor(
+    doctor_id: int,
+    doctor_in: schemas.DoctorUpdate,
+    db: Session = Depends(get_db),
+):
+    doctor = db.query(models.Doctor).filter(
+        models.Doctor.doctor_id == doctor_id
+    ).first()
+
+    if not doctor or not doctor.user:
+        raise HTTPException(status_code=404, detail="Doctor not found")
+
+    user = doctor.user
+
+    if doctor_in.email and doctor_in.email != user.email:
+        existing_email = db.query(models.User).filter(
+            models.User.email == doctor_in.email,
+            models.User.user_id != user.user_id,
+        ).first()
+        if existing_email:
+            raise HTTPException(status_code=400, detail="Email already registered")
+        user.email = doctor_in.email
+
+    if doctor_in.username and doctor_in.username != user.username:
+        existing_username = db.query(models.User).filter(
+            models.User.username == doctor_in.username,
+            models.User.user_id != user.user_id,
+        ).first()
+        if existing_username:
+            raise HTTPException(status_code=400, detail="Username already taken")
+        user.username = doctor_in.username
+
+    if doctor_in.name is not None:
+        user.name = doctor_in.name
+    if doctor_in.phone is not None:
+        user.phone = doctor_in.phone
+    if doctor_in.password:
+        user.password_hash = get_password_hash(doctor_in.password)
+
+    if doctor_in.specialization is not None:
+        doctor.specialization = doctor_in.specialization
+    if doctor_in.experience_years is not None:
+        doctor.experience_years = doctor_in.experience_years
+
+    if doctor_in.schedule is not None:
+        schedule_title = f"doctor_schedule_{doctor_id}"
+        schedule_doc = db.query(models.MedicalDocument).filter(
+            models.MedicalDocument.title == schedule_title
+        ).first()
+        schedule_json = json.dumps(doctor_in.schedule)
+        if schedule_doc:
+            schedule_doc.content = schedule_json
+        else:
+            db.add(models.MedicalDocument(
+                title=schedule_title,
+                content=schedule_json,
+                source="doctor_schedule",
+            ))
+
+    db.commit()
+    db.refresh(user)
+    db.refresh(doctor)
+
+    schedule: dict = {}
+    schedule_doc = db.query(models.MedicalDocument).filter(
+        models.MedicalDocument.title == f"doctor_schedule_{doctor_id}"
+    ).first()
+    if schedule_doc and schedule_doc.content:
+        try:
+            schedule = json.loads(schedule_doc.content)
+        except json.JSONDecodeError:
+            schedule = {}
+
+    return schemas.DoctorDetailResponse(
+        doctor_id=doctor.doctor_id,
+        user_id=doctor.user_id,
+        name=user.name,
+        username=user.username,
+        email=user.email,
+        phone=user.phone,
+        specialization=doctor.specialization,
+        experience_years=doctor.experience_years,
+        availability_status=doctor.availability_status,
+        schedule=schedule,
+    )
+
+
 @app.delete("/doctors/{doctor_id}")
 def delete_doctor(doctor_id: int, db: Session = Depends(get_db)):
     doctor = db.query(models.Doctor).filter(
