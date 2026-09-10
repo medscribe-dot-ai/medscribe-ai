@@ -1,13 +1,16 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
-import { Platform } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Platform, View } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function ReceptionistLayout() {
   const insets = useSafeAreaInsets();
 
   return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#FFFFFF' }} edges={['top']}>
+      <View style={{ flex: 1 }}>
     <Tabs
+      safeAreaInsets={{ top: 0 }}
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: '#0D9488',
@@ -73,5 +76,7 @@ export default function ReceptionistLayout() {
       <Tabs.Screen name="book-appointment" options={{ href: null }} />
       <Tabs.Screen name="settings" options={{ href: null }} />
     </Tabs>
+      </View>
+    </SafeAreaView>
   );
 }

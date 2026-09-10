@@ -166,7 +166,7 @@ export default function AddReceptionist() {
     };
 
     return (
-        <SafeAreaView style={{ backgroundColor: colors.background }} className="flex-1">
+        <SafeAreaView style={{ backgroundColor: colors.background }} className="flex-1" edges={[]}>
             <StatusBar style="dark" />
 
             {/* Header Toolbar Component */}

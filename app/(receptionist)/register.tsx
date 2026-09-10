@@ -1,12 +1,11 @@
 import React, { useState } from 'react';
-import { View, Text, ScrollView, TextInput, TouchableOpacity, SafeAreaView, Dimensions, ActivityIndicator, Alert, Modal } from 'react-native';
+import { View, Text, ScrollView, TextInput, TouchableOpacity, ActivityIndicator, Alert, Modal } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { API_URL } from '../../src/config/api';
-
-const { height: screenHeight } = Dimensions.get('window');
 
 const RegisterPatient = () => {
   const router = useRouter();
@@ -107,11 +106,11 @@ const RegisterPatient = () => {
   };
 
   return (
-    <SafeAreaView style={{ flex: 1, height: screenHeight }} className="bg-white">
+    <SafeAreaView style={{ flex: 1, overflow: 'hidden' }} className="bg-white" edges={[]}>
       <ScrollView 
         nestedScrollEnabled={true}
         showsVerticalScrollIndicator={true} 
-        contentContainerStyle={{ flexGrow: 1, paddingBottom: 160 }}
+        contentContainerStyle={{ flexGrow: 1, paddingBottom: 24 }}
         style={{ flex: 1 }}
       >
         {/* HEADER SECTION */}
@@ -336,7 +335,6 @@ const RegisterPatient = () => {
           </View>
         </View>
       </Modal>
-
     </SafeAreaView>
   );
 };

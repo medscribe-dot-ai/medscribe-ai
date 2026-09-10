@@ -4,10 +4,10 @@ import {
   Text,
   ScrollView,
   TouchableOpacity,
-  SafeAreaView,
   ActivityIndicator,
   RefreshControl,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import axios from 'axios';
@@ -84,7 +84,7 @@ const AppointmentsPage = () => {
   );
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#F8FAFC' }}>
+    <SafeAreaView style={{ flex: 1, overflow: 'hidden', backgroundColor: '#F8FAFC' }} edges={[]}>
       <View className="px-6 py-4 flex-row items-center justify-between border-b border-slate-100 bg-white">
         <ReceptionistMenuButton title="Appointments" />
         <TouchableOpacity
@@ -97,6 +97,7 @@ const AppointmentsPage = () => {
       </View>
 
       <ScrollView
+        style={{ flex: 1 }}
         contentContainerStyle={{ padding: 24, paddingBottom: 24 }}
         refreshControl={
           <RefreshControl

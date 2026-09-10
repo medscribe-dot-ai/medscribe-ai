@@ -12,13 +12,12 @@ import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Platform,
-  SafeAreaView,
   ScrollView,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { getPatientById, PatientListItem } from '@/src/services/patientService';
 import { colors } from '@/src/theme/colors';
 
@@ -123,9 +122,9 @@ export default function PatientReport() {
 
   if (!patient) {
     return (
-      <SafeAreaView style={{ backgroundColor: colors.background }} className="flex-1">
+      <SafeAreaView style={{ backgroundColor: colors.background }} className="flex-1" edges={[]}>
         <StatusBar style="dark" />
-        <View className="px-6" style={{ marginTop: Platform.OS === 'android' ? 40 : 10 }}>
+        <View className="px-6" style={{ marginTop: 10 }}>
           <TouchableOpacity
             onPress={() => router.replace('/(doctor)/dashboard')}
             className="flex-row items-center py-2"
@@ -159,10 +158,11 @@ export default function PatientReport() {
   const registeredAt = formatRegisteredAt(patient.created_at);
 
   return (
-    <SafeAreaView style={{ backgroundColor: colors.background }} className="flex-1">
+    <SafeAreaView style={{ backgroundColor: colors.background }} className="flex-1" edges={[]}>
       <StatusBar style="dark" />
 
-      <View className="px-6" style={{ marginTop: Platform.OS === 'android' ? 40 : 10 }}>
+      {/* Navigation Bar */}
+      <View className="px-6" style={{ marginTop: 10 }}>
         <TouchableOpacity
           onPress={() => router.replace('/(doctor)/dashboard')}
           className="flex-row items-center py-2"
@@ -181,7 +181,9 @@ export default function PatientReport() {
         </TouchableOpacity>
       </View>
 
-      <ScrollView className="px-6 flex-1" showsVerticalScrollIndicator={false}>
+      <ScrollView className="px-6 flex-1" contentContainerStyle={{ paddingBottom: 32 }} showsVerticalScrollIndicator={false}>
+
+        {/* Patient Profile Header */}
         <View className="mt-8 mb-6">
           <Text
             style={{ color: colors.mutedText }}

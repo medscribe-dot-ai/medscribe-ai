@@ -111,7 +111,7 @@ export default function AdminDashboard() {
     }
 
     return (
-        <SafeAreaView style={{ backgroundColor: colors.background }} className="flex-1">
+        <SafeAreaView style={{ backgroundColor: colors.background }} className="flex-1" edges={[]}>
             <StatusBar style="dark" />
 
             <ScrollView

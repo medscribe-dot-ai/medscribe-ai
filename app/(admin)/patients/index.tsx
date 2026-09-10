@@ -103,7 +103,7 @@ export default function AdminPatientsScreen() {
   }, [patients, query, filter]);
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={[]}>
       {/* --- DOCTORS LIST STYLE WHITE HEADER --- */}
       <View
         style={{

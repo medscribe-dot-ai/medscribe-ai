@@ -1,15 +1,18 @@
 import React from 'react';
 import { Tabs } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { Platform } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Platform, View } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '@/src/theme/colors';
 
 export default function DoctorLayout() {
   const insets = useSafeAreaInsets();
 
   return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['top']}>
+      <View style={{ flex: 1 }}>
     <Tabs
+      safeAreaInsets={{ top: 0 }}
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: colors.primary,
@@ -93,5 +96,7 @@ export default function DoctorLayout() {
         }}
       />
     </Tabs>
+      </View>
+    </SafeAreaView>
   );
 }

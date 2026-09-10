@@ -2,13 +2,12 @@ import React, { useCallback, useState } from 'react';
 import {
   View,
   Text,
-  SafeAreaView,
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
-  Platform,
   Alert,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -78,13 +77,10 @@ export default function FullQueue() {
   };
 
   return (
-    <SafeAreaView style={{ backgroundColor: colors.background }} className="flex-1">
+    <SafeAreaView style={{ backgroundColor: colors.background }} className="flex-1" edges={[]}>
       <StatusBar style="dark" />
 
-      <View
-        className="px-6 flex-1"
-        style={{ marginTop: Platform.OS === 'android' ? 45 : 10 }}
-      >
+      <View className="px-6 flex-1" style={{ marginTop: 10 }}>
         <TouchableOpacity
           onPress={() => router.back()}
           className="flex-row items-center py-2 mb-6"

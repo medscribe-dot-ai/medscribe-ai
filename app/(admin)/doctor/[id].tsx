@@ -76,7 +76,7 @@ export default function DoctorDetails() {
 
     if (error || !doctor) {
         return (
-            <SafeAreaView style={{ backgroundColor: colors.background }} className="flex-1">
+            <SafeAreaView style={{ backgroundColor: colors.background }} className="flex-1" edges={[]}>
                 <View className="px-6 py-4 flex-row items-center bg-white border-b border-slate-50">
                     <TouchableOpacity onPress={() => router.push('/(admin)/doctor')} className="mr-4 p-2 rounded-full bg-slate-50">
                         <MaterialCommunityIcons name="arrow-left" size={24} color={colors.darkText} />
@@ -169,7 +169,7 @@ export default function DoctorDetails() {
     };
 
     return (
-        <SafeAreaView style={{ backgroundColor: colors.background }} className="flex-1">
+        <SafeAreaView style={{ backgroundColor: colors.background }} className="flex-1" edges={[]}>
             <View className="px-6 py-4 flex-row items-center justify-between bg-white border-b border-slate-50">
                 <View className="flex-row items-center">
                     <TouchableOpacity onPress={() => router.push("/(admin)/doctor")} className="mr-4 p-2 rounded-full bg-slate-50">

@@ -19,7 +19,7 @@ export default function ReportsScreen() {
   }, []);
 
   return (
-    <SafeAreaView style={{ backgroundColor: colors.background }} className="flex-1">
+    <SafeAreaView style={{ backgroundColor: colors.background }} className="flex-1" edges={[]}>
       <ScrollView
         showsVerticalScrollIndicator={false}
         className="px-6 pt-4"

@@ -6,10 +6,10 @@ import {
   TextInput,
   TouchableOpacity,
   ActivityIndicator,
-  SafeAreaView,
 } from 'react-native';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import axios from 'axios';
 import { API_URL } from '../../src/config/api';
 import { ReceptionistMenuButton } from '../../src/components/receptionist/ReceptionistNavMenu';
@@ -82,7 +82,7 @@ const PatientsPage = () => {
   }, [searchTerm]);
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#F8FAFC' }}>
+    <SafeAreaView style={{ flex: 1, overflow: 'hidden', backgroundColor: '#F8FAFC' }} edges={[]}>
       <View className="px-6 py-4 bg-white border-b border-slate-100 flex-row items-center justify-between">
         <ReceptionistMenuButton title="Patients" />
         <TouchableOpacity
@@ -106,7 +106,7 @@ const PatientsPage = () => {
         </View>
       </View>
 
-      <ScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 24 }}>
+      <ScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 24 }} style={{ flex: 1 }}>
         {loading && patients.length === 0 ? (
           <ActivityIndicator size="large" color="#0D9488" style={{ marginTop: 40 }} />
         ) : patients.length === 0 ? (

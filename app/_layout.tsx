@@ -1,18 +1,18 @@
 import { Stack } from "expo-router";
-import "../src/theme/global.css"; // Path update kiya
+import { StatusBar } from "expo-status-bar";
+import { SafeAreaProvider } from "react-native-safe-area-context";
+import "../src/theme/global.css";
 
 export default function RootLayout() {
   return (
-    <Stack screenOptions={{ headerShown: false }}>
-      {/* Index screen (Welcome) */}
-      <Stack.Screen name="index" />
-      
-      {/* Auth Group */}
-      <Stack.Screen name="(auth)" />
-      
-      {/* Role Groups (Future screens) */}
-      <Stack.Screen name="(doctor)" />
-      <Stack.Screen name="(receptionist)" />
-    </Stack>
+    <SafeAreaProvider>
+      <StatusBar style="dark" />
+      <Stack screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="index" />
+        <Stack.Screen name="(auth)" />
+        <Stack.Screen name="(doctor)" />
+        <Stack.Screen name="(receptionist)" />
+      </Stack>
+    </SafeAreaProvider>
   );
 }

@@ -230,7 +230,7 @@ export default function AddReceptionist() {
     };
 
     return (
-        <SafeAreaView style={{ backgroundColor: colors.background }} className="flex-1">
+        <SafeAreaView style={{ backgroundColor: colors.background }} className="flex-1" edges={[]}>
             <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} className="flex-1">
                 <View className="px-6 py-4 flex-row items-center border-b border-slate-100 bg-white">
                     <TouchableOpacity onPress={() => router.back()} className="mr-4 w-10 h-10 items-center justify-center rounded-full bg-slate-50">

@@ -23,7 +23,7 @@ export default function DoctorProfile() {
     if (loading) return <View className="flex-1 justify-center items-center" style={{ backgroundColor: colors.background }}><ActivityIndicator color={colors.primary} /></View>;
 
     return (
-        <SafeAreaView style={{ backgroundColor: colors.background }} className="flex-1">
+        <SafeAreaView style={{ backgroundColor: colors.background }} className="flex-1" edges={[]}>
             <StatusBar barStyle="dark-content" />
             <View className="flex-row items-center px-6 py-4">
                 <TouchableOpacity onPress={() => router.back()} className="p-2 -ml-2">
@@ -32,7 +32,7 @@ export default function DoctorProfile() {
                 <Text className="text-xl font-bold ml-2">Doctor Profile</Text>
             </View>
 
-            <ScrollView showsVerticalScrollIndicator={false} className="px-6">
+            <ScrollView showsVerticalScrollIndicator={false} className="px-6" contentContainerStyle={{ paddingBottom: 32 }}>
                 <View className="items-center mt-4 mb-8">
                     <View className="w-24 h-24 rounded-full items-center justify-center border-4 border-white shadow-lg" style={{ backgroundColor: colors.primary }}>
                         <MaterialCommunityIcons name="doctor" size={50} color="white" />

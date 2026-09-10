@@ -7,13 +7,13 @@ import {
   Alert,
   Modal,
   Platform,
-  SafeAreaView,
   ScrollView,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { API_URL } from '../../src/config/api';
 import {
   APPOINTMENT_SLOT_MINUTES,
@@ -331,7 +331,7 @@ const BookAppointment = () => {
   const loadingList = loadingDoctors || loadingSchedules || loadingDayAppts;
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#F8FAFC' }}>
+    <SafeAreaView style={{ flex: 1, overflow: 'hidden', backgroundColor: '#F8FAFC' }} edges={[]}>
       <View className="px-6 py-4 flex-row items-center border-b border-slate-100 bg-white">
         <TouchableOpacity onPress={() => router.back()}>
           <Feather name="arrow-left" size={24} color="#1E293B" />

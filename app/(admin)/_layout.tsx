@@ -3,7 +3,7 @@ import { BottomTabBarButtonProps } from '@react-navigation/bottom-tabs';
 import { Tabs, useRouter } from 'expo-router';
 import React from 'react';
 import { Platform, TouchableOpacity, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '../../src/theme/colors';
 
 export default function AdminLayout() {
@@ -11,7 +11,10 @@ export default function AdminLayout() {
     const insets = useSafeAreaInsets();
 
     return (
+        <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['top']}>
+            <View style={{ flex: 1 }}>
         <Tabs
+            safeAreaInsets={{ top: 0 }}
             screenOptions={{
                 headerShown: false,
                 tabBarActiveTintColor: colors.primary,
@@ -144,5 +147,7 @@ export default function AdminLayout() {
             <Tabs.Screen name="receptionist/[id]" options={{ href: null }} />
             <Tabs.Screen name="(receptionist)" options={{ href: null }} />
         </Tabs>
+            </View>
+        </SafeAreaView>
     );
 }

@@ -5,10 +5,10 @@ import {
   ScrollView,
   TextInput,
   TouchableOpacity,
-  SafeAreaView,
   ActivityIndicator,
   Alert,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from 'expo-router';
@@ -131,11 +131,11 @@ const PatientQueue = () => {
   const waitingCount = queueData.filter((p) => (p.status || '').toLowerCase() === 'waiting').length;
 
   return (
-    <SafeAreaView style={{ flex: 1 }} className="bg-white">
+    <SafeAreaView style={{ flex: 1, overflow: 'hidden' }} className="bg-white" edges={[]}>
       <ScrollView
         nestedScrollEnabled={true}
         showsVerticalScrollIndicator={true}
-        contentContainerStyle={{ flexGrow: 1, paddingBottom: 28 }}
+        contentContainerStyle={{ flexGrow: 1, paddingBottom: 24 }}
         style={{ flex: 1 }}
       >
         {/* HEADER */}

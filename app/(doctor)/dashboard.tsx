@@ -1,5 +1,6 @@
 import React, { useCallback, useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, ActivityIndicator, SafeAreaView, Platform, Alert } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -112,11 +113,11 @@ export default function DoctorDashboard() {
   }
 
   return (
-    <SafeAreaView style={{ backgroundColor: themeColors.background }} className="flex-1">
+    <SafeAreaView style={{ backgroundColor: themeColors.background }} className="flex-1" edges={[]}>
       <StatusBar style="dark" />
       <ScrollView
         className="flex-1 px-5"
-        contentContainerStyle={{ paddingTop: Platform.OS === 'android' ? 50 : 20, paddingBottom: 100 }}
+        contentContainerStyle={{ paddingTop: 20, paddingBottom: 32 }}
         showsVerticalScrollIndicator={false}
       >
         <View className="flex-row justify-between items-center mb-8">

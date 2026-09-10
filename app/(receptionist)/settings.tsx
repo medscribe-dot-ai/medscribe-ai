@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, SafeAreaView, Switch } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, Switch } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import {
@@ -15,11 +16,11 @@ const SettingsScreen = () => {
   const [twoFactor, setTwoFactor] = useState(false);
 
   return (
-    <SafeAreaView style={{ flex: 1 }} className="bg-white">
+    <SafeAreaView style={{ flex: 1, overflow: 'hidden' }} className="bg-white" edges={[]}>
       <ScrollView
-        nestedScrollEnabled
-        showsVerticalScrollIndicator
-        contentContainerStyle={{ flexGrow: 1, paddingBottom: 40 }}
+        nestedScrollEnabled={true}
+        showsVerticalScrollIndicator={true}
+        contentContainerStyle={{ flexGrow: 1, paddingBottom: 24 }}
         style={{ flex: 1 }}
       >
         <View className="px-6 pt-4 pb-2 bg-white flex-row justify-between items-center">

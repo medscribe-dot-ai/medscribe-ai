@@ -704,7 +704,7 @@ export default function VoiceRecordingScreen() {
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: '#f8fafc' }}
-      contentContainerStyle={{ paddingHorizontal: 20, paddingTop: Platform.OS === 'android' ? 60 : 40, paddingBottom: 60 }}
+      contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 24, paddingBottom: 32 }}
       showsVerticalScrollIndicator={false}
     >
       <View style={{ marginBottom: 28 }}>
