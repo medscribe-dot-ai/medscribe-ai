@@ -1,8 +1,10 @@
-from fastapi import FastAPI, Depends, HTTPException, status, BackgroundTasks
+from fastapi import FastAPI, Depends, HTTPException, status, BackgroundTasks, Header
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from sqlalchemy.exc import IntegrityError
+from typing import List, Optional, Tuple
 import httpx, os, datetime, re, json
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from database import engine, get_db, Base
 import models, schemas
 from auth import get_password_hash, verify_password
@@ -88,6 +90,94 @@ def parse_soap_sections(soap_text: str) -> dict:
         sections["subjective"] = clean_markdown(soap_text.strip())
 
     return sections
+
+
+_CLINICAL_SUMMARY_MAX = 800
+
+
+def build_clinical_summary(
+    subjective: Optional[str] = None,
+    objective: Optional[str] = None,
+    assessment: Optional[str] = None,
+    plan: Optional[str] = None,
+    max_chars: int = _CLINICAL_SUMMARY_MAX,
+) -> Optional[str]:
+    """
+    Deterministic short summary from approved S/O/A/P only.
+    Does not invent or infer clinical content. Returns None if all empty.
+    """
+    def _clip_section(text: Optional[str], budget: int) -> Optional[str]:
+        if not text:
+            return None
+        cleaned = " ".join(str(text).split())
+        if not cleaned:
+            return None
+        if len(cleaned) <= budget:
+            return cleaned
+        return cleaned[: max(0, budget - 1)].rstrip() + "…"
+
+    # Soft budgets so Assessment/Plan are not crowded out by long Subjective
+    budgets = {
+        "Subjective": 220,
+        "Objective": 150,
+        "Assessment": 200,
+        "Plan": 230,
+    }
+    pieces = []
+    for label, raw in (
+        ("Subjective", subjective),
+        ("Objective", objective),
+        ("Assessment", assessment),
+        ("Plan", plan),
+    ):
+        clipped = _clip_section(raw, budgets[label])
+        if clipped:
+            pieces.append(f"{label}: {clipped}")
+
+    if not pieces:
+        return None
+
+    summary = " | ".join(pieces)
+    if len(summary) <= max_chars:
+        return summary
+
+    # Hard cap while keeping as many leading sections as fit
+    out = []
+    used = 0
+    for piece in pieces:
+        sep = 3 if out else 0  # " | "
+        if used + sep + len(piece) > max_chars:
+            remain = max_chars - used - sep
+            if remain >= 40:
+                out.append(piece[: remain - 1].rstrip() + "…")
+            break
+        out.append(piece)
+        used += sep + len(piece)
+    return " | ".join(out) if out else summary[: max_chars - 1].rstrip() + "…"
+
+
+def _latest_clinical_summary_for_patient(db: Session, patient_id: int) -> Optional[str]:
+    """Latest completed visit's soap_reports.clinical_summary (may be NULL)."""
+    appointments = (
+        db.query(models.Appointment)
+        .filter(models.Appointment.patient_id == patient_id)
+        .order_by(
+            models.Appointment.scheduled_time.desc().nullslast(),
+            models.Appointment.created_at.desc(),
+        )
+        .all()
+    )
+    for appt in appointments:
+        consultation = appt.consultation
+        if not consultation:
+            continue
+        if (consultation.status or "").lower() != "completed":
+            continue
+        report = consultation.soap_report
+        if report is None:
+            return None
+        return report.clinical_summary
+    return None
 
 
 # ====================== AUTH & ADMIN ENDPOINTS ======================
@@ -552,6 +642,146 @@ def get_colab_url():
 
 # ====================== AUDIO PROCESSING ======================
 
+# Compact prior-visit budget for Colab /process payload (keep small for MedGemma tokens)
+_PRIOR_CTX_ASSESSMENT_MAX = 400
+_PRIOR_CTX_PLAN_MAX = 400
+_PRIOR_CTX_SO_MAX = 200
+_PRIOR_CTX_NOTE_EXCERPT_MAX = 300
+_PRIOR_CTX_TOTAL_MAX = 1400
+
+
+def _clip_text(value: Optional[str], max_len: int) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if len(text) <= max_len:
+        return text
+    return text[: max_len - 1].rstrip() + "…"
+
+
+def _build_prior_clinical_context(
+    db: Session,
+    consultation: Optional[models.Consultation],
+) -> Optional[dict]:
+    """
+    Latest ONE completed prior visit for the same patient as this consultation.
+    patient_id is resolved only via consultation → appointment → patient_id.
+    Returns None when unavailable. Never raises for missing data.
+    """
+    if consultation is None or consultation.appointment_id is None:
+        return None
+
+    current_appt = (
+        db.query(models.Appointment)
+        .filter(models.Appointment.appointment_id == consultation.appointment_id)
+        .first()
+    )
+    if not current_appt or current_appt.patient_id is None:
+        return None
+
+    patient_id = current_appt.patient_id
+    exclude_appointment_id = current_appt.appointment_id
+
+    prior_appts = (
+        db.query(models.Appointment)
+        .filter(models.Appointment.patient_id == patient_id)
+        .order_by(
+            models.Appointment.scheduled_time.desc().nullslast(),
+            models.Appointment.created_at.desc(),
+        )
+        .all()
+    )
+
+    chosen = None
+    for appt in prior_appts:
+        if appt.appointment_id == exclude_appointment_id:
+            continue
+        linked = appt.consultation
+        if linked is None:
+            continue
+        if (linked.status or "").lower().strip() != "completed":
+            continue
+        chosen = appt
+        break
+
+    if chosen is None:
+        return None
+
+    linked = chosen.consultation
+    doctor_name = None
+    if chosen.doctor and chosen.doctor.user:
+        doctor_name = chosen.doctor.user.name
+
+    assessment = None
+    plan = None
+    subjective = None
+    objective = None
+    soap_note_excerpt = None
+
+    report = linked.soap_report if linked else None
+    if report:
+        assessment = report.assessment
+        plan = report.plan
+        subjective = report.subjective
+        objective = report.objective
+    elif linked and linked.soap_note:
+        parsed = parse_soap_sections(linked.soap_note)
+        assessment = parsed.get("assessment")
+        plan = parsed.get("plan")
+        subjective = parsed.get("subjective")
+        objective = parsed.get("objective")
+
+    assessment = _clip_text(assessment, _PRIOR_CTX_ASSESSMENT_MAX)
+    plan = _clip_text(plan, _PRIOR_CTX_PLAN_MAX)
+    subjective = _clip_text(subjective, _PRIOR_CTX_SO_MAX)
+    objective = _clip_text(objective, _PRIOR_CTX_SO_MAX)
+
+    if not assessment and not plan and linked and linked.soap_note:
+        soap_note_excerpt = _clip_text(linked.soap_note, _PRIOR_CTX_NOTE_EXCERPT_MAX)
+
+    visit = {
+        "appointment_id": chosen.appointment_id,
+        "scheduled_time": (
+            chosen.scheduled_time.isoformat() if chosen.scheduled_time is not None else None
+        ),
+        "doctor_name": doctor_name,
+        "assessment": assessment,
+        "plan": plan,
+        "subjective": subjective,
+        "objective": objective,
+        "soap_note_excerpt": soap_note_excerpt,
+    }
+
+    # Drop empty optional clinical fields to keep payload small
+    visit = {k: v for k, v in visit.items() if v is not None and v != ""}
+
+    context = {
+        "patient_id": patient_id,
+        "exclude_appointment_id": exclude_appointment_id,
+        "visits": [visit],
+    }
+
+    # Hard cap on serialized size
+    encoded = json.dumps(context, default=str)
+    if len(encoded) > _PRIOR_CTX_TOTAL_MAX:
+        # Prefer Assessment/Plan; drop S/O/excerpt first
+        visit.pop("subjective", None)
+        visit.pop("objective", None)
+        visit.pop("soap_note_excerpt", None)
+        context["visits"] = [visit]
+        encoded = json.dumps(context, default=str)
+        if len(encoded) > _PRIOR_CTX_TOTAL_MAX:
+            if "assessment" in visit:
+                visit["assessment"] = _clip_text(visit["assessment"], 200)
+            if "plan" in visit:
+                visit["plan"] = _clip_text(visit["plan"], 200)
+            context["visits"] = [visit]
+
+    return context
+
+
 async def call_colab_in_background(consultation_id: int, audio_url: str, bucket_path: str):
     from database import SessionLocal
     db = SessionLocal()
@@ -574,14 +804,25 @@ async def call_colab_in_background(consultation_id: int, audio_url: str, bucket_
             consultation.updated_at       = datetime.datetime.utcnow()
             db.commit()
 
+        prior_clinical_context = None
+        try:
+            prior_clinical_context = _build_prior_clinical_context(db, consultation)
+        except Exception as hist_err:
+            # History must never fail the audio job
+            print(f"⚠️ prior_clinical_context skipped: {hist_err}")
+            prior_clinical_context = None
+
+        colab_payload = {
+            "audio_url": audio_url,
+            "record_id": str(consultation_id),
+            "bucket_path": bucket_path,
+            "prior_clinical_context": prior_clinical_context,
+        }
+
         async with httpx.AsyncClient(timeout=900.0) as client:
             response = await client.post(
                 f"{COLAB_URL}/process",
-                json={
-                    "audio_url":   audio_url,
-                    "record_id":   str(consultation_id),
-                    "bucket_path": bucket_path
-                },
+                json=colab_payload,
                 headers={"ngrok-skip-browser-warning": "true"},
                 timeout=900.0
             )
@@ -793,6 +1034,7 @@ def approve_soap_note(
         existing_report.plan           = parsed["plan"]
         existing_report.full_soap_note = final_soap
         existing_report.generated_at   = datetime.datetime.utcnow()
+        report_row = existing_report
         print(f"✅ soap_reports UPDATED  — consultation_id={consultation_id}")
     else:
         new_report = models.SOAPReport(
@@ -805,7 +1047,23 @@ def approve_soap_note(
             generated_at=datetime.datetime.utcnow(),
         )
         db.add(new_report)
+        report_row = new_report
         print(f"✅ soap_reports INSERTED — consultation_id={consultation_id}")
+
+    # Persist short clinical summary without blocking approval on failure
+    try:
+        summary = build_clinical_summary(
+            parsed.get("subjective"),
+            parsed.get("objective"),
+            parsed.get("assessment"),
+            parsed.get("plan"),
+        )
+        report_row.clinical_summary = summary
+    except Exception as summary_err:
+        print(
+            f"⚠️ clinical_summary skipped for consultation_id={consultation_id}: "
+            f"{summary_err}"
+        )
 
     db.commit()
 
@@ -883,6 +1141,251 @@ APPOINTMENT_TRANSITIONS = {
     "cancelled":   set(),
 }
 
+# Clinical handoff — doctor (or admin) only
+DOCTOR_ONLY_STATUS_TRANSITIONS = {
+    ("waiting", "in_progress"),
+    ("in_progress", "completed"),
+}
+
+# Matches frontend src/utils/doctorSlots.ts
+APPOINTMENT_SLOT_MINUTES = 30
+# Clinic wall-clock for schedule / past / OPD-vs-future checks (server clock, not client)
+CLINIC_TZ_NAME = os.environ.get("CLINIC_TZ", "Asia/Karachi")
+# JS getDay() order used by doctor schedule keys
+_SCHEDULE_DAY_KEYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+_TIME_RANGE_RE = re.compile(
+    r"^(0?[1-9]|1[0-2]):([0-5][0-9])\s?(AM|PM)\s*-\s*(0?[1-9]|1[0-2]):([0-5][0-9])\s?(AM|PM)$",
+    re.IGNORECASE,
+)
+
+
+def _clinic_tz():
+    """Clinic wall-clock TZ. Prefers IANA; falls back if tzdata is missing (e.g. some Windows)."""
+    try:
+        return ZoneInfo(CLINIC_TZ_NAME)
+    except ZoneInfoNotFoundError:
+        # Common clinic defaults when the OS/Python tz database is unavailable
+        if CLINIC_TZ_NAME in ("Asia/Karachi", "PKT"):
+            return datetime.timezone(datetime.timedelta(hours=5), name="Asia/Karachi")
+        if CLINIC_TZ_NAME in ("Asia/Calcutta", "Asia/Kolkata"):
+            return datetime.timezone(datetime.timedelta(hours=5, minutes=30), name=CLINIC_TZ_NAME)
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                f"Unknown clinic timezone '{CLINIC_TZ_NAME}'. "
+                "Install the 'tzdata' package or set CLINIC_TZ to a supported zone."
+            ),
+        )
+
+
+def _as_utc_aware(dt: datetime.datetime) -> datetime.datetime:
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=datetime.timezone.utc)
+    return dt.astimezone(datetime.timezone.utc)
+
+
+def _to_clinic_local(dt: datetime.datetime) -> datetime.datetime:
+    return _as_utc_aware(dt).astimezone(_clinic_tz())
+
+
+def _store_naive_utc_minute(dt: datetime.datetime) -> datetime.datetime:
+    """Persist UTC wall time as naive timestamp (matches existing client ISO storage)."""
+    return _as_utc_aware(dt).replace(tzinfo=None, second=0, microsecond=0)
+
+
+def _parse_clock_to_minutes(clock: str) -> Optional[int]:
+    m = re.match(r"^(0?[1-9]|1[0-2]):([0-5][0-9])\s?(AM|PM)$", clock.strip(), re.IGNORECASE)
+    if not m:
+        return None
+    hour = int(m.group(1))
+    minute = int(m.group(2))
+    period = m.group(3).upper()
+    if period == "AM":
+        if hour == 12:
+            hour = 0
+    elif hour != 12:
+        hour += 12
+    return hour * 60 + minute
+
+
+def _parse_schedule_range(range_str: str) -> Optional[Tuple[int, int]]:
+    trimmed = range_str.strip()
+    if not _TIME_RANGE_RE.match(trimmed):
+        return None
+    parts = re.split(r"\s*-\s*", trimmed)
+    if len(parts) != 2:
+        return None
+    start = _parse_clock_to_minutes(parts[0])
+    end = _parse_clock_to_minutes(parts[1])
+    if start is None or end is None or end <= start:
+        return None
+    return start, end
+
+
+def _load_doctor_schedule(db: Session, doctor_id: int) -> dict:
+    schedule_doc = (
+        db.query(models.MedicalDocument)
+        .filter(models.MedicalDocument.title == f"doctor_schedule_{doctor_id}")
+        .first()
+    )
+    if not schedule_doc or not schedule_doc.content:
+        return {}
+    try:
+        data = json.loads(schedule_doc.content)
+        return data if isinstance(data, dict) else {}
+    except json.JSONDecodeError:
+        return {}
+
+
+def _schedule_day_key(local_dt: datetime.datetime) -> str:
+    # Match JS Date#getDay / frontend doctorSlots weekday keys
+    js_day = (local_dt.weekday() + 1) % 7
+    return _SCHEDULE_DAY_KEYS[js_day]
+
+
+def _clinic_now() -> datetime.datetime:
+    """Server clock in clinic timezone — never trust the client clock."""
+    return datetime.datetime.now(_clinic_tz())
+
+
+def _validate_against_doctor_schedule(
+    db: Session,
+    doctor_id: int,
+    scheduled_utc_naive: datetime.datetime,
+    status: str,
+) -> None:
+    """
+    Server-side schedule + clock checks (clinic TZ). Does not trust client clock.
+    """
+    now_clinic = _clinic_now()
+    local = _to_clinic_local(scheduled_utc_naive)
+    local_minutes = local.hour * 60 + local.minute
+
+    # Status-specific date rules
+    if status == "waiting":
+        if local.date() != now_clinic.date():
+            raise HTTPException(
+                status_code=400,
+                detail="Current OPD appointments must be booked for today's date (clinic time).",
+            )
+        if local <= now_clinic:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot book a past time slot for Current OPD.",
+            )
+    elif status == "scheduled":
+        if local.date() <= now_clinic.date():
+            raise HTTPException(
+                status_code=400,
+                detail="Future appointments must be on a date after today (clinic time).",
+            )
+
+    schedule = _load_doctor_schedule(db, doctor_id)
+    day_key = _schedule_day_key(local)
+    range_str = schedule.get(day_key)
+    if not range_str or not str(range_str).strip():
+        raise HTTPException(
+            status_code=400,
+            detail=f"Doctor is not scheduled on {day_key}.",
+        )
+
+    parsed = _parse_schedule_range(str(range_str))
+    if not parsed:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Doctor schedule for {day_key} is invalid.",
+        )
+    start, end = parsed
+
+    if local_minutes < start or local_minutes >= end:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Selected time is outside doctor working hours ({range_str}).",
+        )
+
+    # Must land on a slot start (same grid as frontend)
+    if (local_minutes - start) % APPOINTMENT_SLOT_MINUTES != 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Selected time must align to a {APPOINTMENT_SLOT_MINUTES}-minute slot.",
+        )
+    if local_minutes + APPOINTMENT_SLOT_MINUTES > end:
+        raise HTTPException(
+            status_code=400,
+            detail="Selected slot does not fit within doctor working hours.",
+        )
+
+    # Current OPD: doctor must currently be within working hours (server clock)
+    if status == "waiting":
+        now_mins = now_clinic.hour * 60 + now_clinic.minute
+        if now_mins < start or now_mins >= end:
+            raise HTTPException(
+                status_code=400,
+                detail="Doctor is outside working hours right now; cannot book Current OPD.",
+            )
+
+
+def _actor_from_user_id_header(
+    db: Session,
+    x_user_id: Optional[int],
+) -> models.User:
+    """
+    Resolve the logged-in user from X-User-Id (set after /login).
+    Role is taken from the database — not from a client-claimed role string.
+    """
+    if x_user_id is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required. Send X-User-Id header from the logged-in session.",
+        )
+    user = db.query(models.User).filter(models.User.user_id == x_user_id).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid user session.")
+    return user
+
+
+def _assert_appointment_status_role(actor: models.User, current: str, new_status: str) -> None:
+    """Enforce receptionist vs doctor boundaries on status changes."""
+    if new_status == current:
+        return
+
+    role = (actor.role or "").lower().strip()
+    pair = (current, new_status)
+
+    if pair in DOCTOR_ONLY_STATUS_TRANSITIONS:
+        if role not in ("doctor", "admin"):
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Only a doctor can start or complete a consultation "
+                    f"({current} → {new_status})."
+                ),
+            )
+        return
+
+    if new_status == "cancelled":
+        if role not in ("receptionist", "doctor", "admin"):
+            raise HTTPException(
+                status_code=403,
+                detail="Not allowed to cancel this appointment.",
+            )
+        return
+
+    # e.g. scheduled → waiting (check-in / enter queue)
+    if new_status == "waiting":
+        if role not in ("receptionist", "doctor", "admin"):
+            raise HTTPException(
+                status_code=403,
+                detail="Not allowed to move this appointment into the waiting queue.",
+            )
+        return
+
+    if role not in ("doctor", "admin"):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Not allowed to change status from '{current}' to '{new_status}'.",
+        )
+
 
 def _generate_queue_token(db: Session) -> str:
     """Per-visit token: T-YYYYMMDD-NNN (unique for the day). Not patient_code."""
@@ -920,6 +1423,9 @@ def create_appointment(payload: schemas.AppointmentCreate, db: Session = Depends
     Book an OPD visit for an existing patient.
     Default status=waiting (current visit) → generates queue_token immediately.
     status=scheduled → future appointment, no token yet.
+
+    Validates doctor schedule (day + hours), rejects past slots using clinic server time,
+    and prevents double-booking (cancelled appointments do not block a slot).
     """
     status = (payload.status or "waiting").lower().strip()
     if status not in APPOINTMENT_STATUSES:
@@ -945,7 +1451,49 @@ def create_appointment(payload: schemas.AppointmentCreate, db: Session = Depends
     if not doctor:
         raise HTTPException(status_code=404, detail="Doctor not found")
 
-    scheduled_time = payload.scheduled_time or datetime.datetime.utcnow()
+    if payload.scheduled_time is None:
+        raise HTTPException(
+            status_code=400,
+            detail="scheduled_time is required.",
+        )
+
+    # Normalize to UTC-naive minute precision (consistent storage + conflict key)
+    scheduled_time = _store_naive_utc_minute(payload.scheduled_time)
+
+    # Schedule / past / OPD-vs-future (clinic TZ, server clock)
+    _validate_against_doctor_schedule(db, payload.doctor_id, scheduled_time, status)
+
+    # Application-level conflict check (cancelled does not block)
+    day_start = scheduled_time.replace(hour=0, minute=0, second=0, microsecond=0)
+    day_end = day_start + datetime.timedelta(days=1)
+    existing = (
+        db.query(models.Appointment)
+        .filter(
+            models.Appointment.doctor_id == payload.doctor_id,
+            models.Appointment.scheduled_time >= day_start,
+            models.Appointment.scheduled_time < day_end,
+            models.Appointment.status.isnot(None),
+            models.Appointment.status != "cancelled",
+        )
+        .with_for_update()
+        .all()
+    )
+    for other in existing:
+        other_t = other.scheduled_time
+        if other_t is None:
+            continue
+        if getattr(other_t, "tzinfo", None) is not None:
+            other_t = other_t.replace(tzinfo=None)
+        other_t = other_t.replace(second=0, microsecond=0)
+        if other_t == scheduled_time:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "This time slot is already booked for this doctor. "
+                    "Please choose another available slot."
+                ),
+            )
+
     queue_token = None
     if status == "waiting":
         queue_token = _generate_queue_token(db)
@@ -961,6 +1509,15 @@ def create_appointment(payload: schemas.AppointmentCreate, db: Session = Depends
         db.add(appt)
         db.commit()
         db.refresh(appt)
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "This time slot is already booked for this doctor. "
+                "Please choose another available slot."
+            ),
+        )
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to create appointment: {str(e)}")
@@ -1009,8 +1566,15 @@ def update_appointment_status(
     appointment_id: int,
     payload: schemas.AppointmentStatusUpdate,
     db: Session = Depends(get_db),
+    x_user_id: Optional[int] = Header(None, alias="X-User-Id"),
 ):
-    """Update appointment status. Generates queue_token when entering waiting."""
+    """Update appointment status. Generates queue_token when entering waiting.
+
+    Clinical transitions waiting→in_progress and in_progress→completed require Doctor.
+    Cancellation remains allowed for receptionist/doctor/admin.
+    """
+    actor = _actor_from_user_id_header(db, x_user_id)
+
     appt = db.query(models.Appointment).filter(
         models.Appointment.appointment_id == appointment_id
     ).first()
@@ -1031,6 +1595,8 @@ def update_appointment_status(
             status_code=400,
             detail=f"Cannot transition from '{current}' to '{new_status}'. Allowed: {sorted(allowed) or 'none'}",
         )
+
+    _assert_appointment_status_role(actor, current, new_status)
 
     # Generate per-visit token when entering the waiting queue
     if new_status == "waiting" and not appt.queue_token:
@@ -1153,6 +1719,9 @@ def search_patients(search: Optional[str] = "", db: Session = Depends(get_db)):
             "status": p.status,
             "created_at": p.created_at,
             "visit_count": visit_count,
+            "latest_clinical_summary": _latest_clinical_summary_for_patient(
+                db, p.patient_id
+            ),
         })
 
     return results
@@ -1191,6 +1760,7 @@ def get_patient_history(patient_id: int, db: Session = Depends(get_db)):
         consultation_status = consultation.status if consultation else None
         soap_note = None
         soap_sections = None
+        clinical_summary = None
 
         if consultation and (consultation.status or "").lower() == "completed":
             soap_note = consultation.soap_note
@@ -1202,6 +1772,7 @@ def get_patient_history(patient_id: int, db: Session = Depends(get_db)):
                     "assessment": report.assessment,
                     "plan": report.plan,
                 }
+                clinical_summary = report.clinical_summary
             elif soap_note:
                 parsed = parse_soap_sections(soap_note)
                 soap_sections = {
@@ -1222,6 +1793,7 @@ def get_patient_history(patient_id: int, db: Session = Depends(get_db)):
             "consultation_status": consultation_status,
             "soap_note": soap_note,
             "soap_sections": soap_sections,
+            "clinical_summary": clinical_summary,
         })
 
     return {

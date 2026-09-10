@@ -46,6 +46,7 @@ export default function AddDoctor() {
     const [showPassword, setShowPassword] = useState(false);
     const [serverReady, setServerReady] = useState(false);
     const [errors, setErrors] = useState<Errors>({});
+    const [editingDoctorId, setEditingDoctorId] = useState<number | null>(null);
 
     const [form, setForm] = useState({
         name: '',
@@ -75,14 +76,27 @@ export default function AddDoctor() {
             if (editData) {
                 try {
                     const data = JSON.parse(editData as string);
+                    setEditingDoctorId(data.doctor_id ?? null);
                     setForm({
-                        ...data,
                         name: stripDoctorPrefix(data.name || ''),
+                        username: data.username || '',
+                        email: data.email || '',
+                        phone: data.phone || '',
+                        password: '',
+                        specialization: data.specialization || '',
+                        experience:
+                            data.experience_years != null && data.experience_years !== ''
+                                ? String(data.experience_years)
+                                : data.experience != null && data.experience !== ''
+                                    ? String(data.experience)
+                                    : '',
+                        schedule: data.schedule && typeof data.schedule === 'object' ? data.schedule : {},
                     });
                 } catch (e) {
                     console.error("Failed to parse editData", e);
                 }
             } else {
+                setEditingDoctorId(null);
                 setForm({
                     name: '',
                     username: '',
@@ -207,29 +221,62 @@ export default function AddDoctor() {
         setLoading(true);
 
         try {
-            const payload = {
-                user_data: {
+            let response: Response;
+
+            if (isEditMode) {
+                if (!editingDoctorId) {
+                    setLoading(false);
+                    Alert.alert("Error", "Doctor ID is missing. Please go back and try again.");
+                    return;
+                }
+
+                const updatePayload: Record<string, unknown> = {
                     name: formatDoctorName(form.name),
                     username: form.username.trim().toLowerCase(),
                     email: form.email.trim().toLowerCase(),
                     phone: form.phone.trim(),
-                    password: form.password,
-                    role: "doctor",
-                },
-                specialization: form.specialization,
-                experience_years: parseInt(form.experience) || 0,
-                schedule: form.schedule,
-            };
+                    specialization: form.specialization,
+                    experience_years: parseInt(form.experience) || 0,
+                    schedule: form.schedule,
+                };
+                if (form.password) {
+                    updatePayload.password = form.password;
+                }
 
-            console.log("Sending payload:", JSON.stringify(payload));
+                console.log("Sending update payload:", JSON.stringify(updatePayload));
 
-            const response = await fetch(`${API_URL}/admin/add-doctor`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(payload),
-            });
+                response = await fetch(`${API_URL}/doctors/${editingDoctorId}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(updatePayload),
+                });
+            } else {
+                const payload = {
+                    user_data: {
+                        name: formatDoctorName(form.name),
+                        username: form.username.trim().toLowerCase(),
+                        email: form.email.trim().toLowerCase(),
+                        phone: form.phone.trim(),
+                        password: form.password,
+                        role: "doctor",
+                    },
+                    specialization: form.specialization,
+                    experience_years: parseInt(form.experience) || 0,
+                    schedule: form.schedule,
+                };
+
+                console.log("Sending payload:", JSON.stringify(payload));
+
+                response = await fetch(`${API_URL}/admin/add-doctor`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(payload),
+                });
+            }
 
             const responseText = await response.text();
             console.log("Raw response:", responseText);
@@ -246,8 +293,8 @@ export default function AddDoctor() {
             if (response.ok) {
                 setLoading(false);
                 Alert.alert(
-                    "Doctor added successfully.",
-                    "Doctor registered successfully!",
+                    isEditMode ? "Doctor updated successfully." : "Doctor added successfully.",
+                    isEditMode ? "Doctor profile updated successfully!" : "Doctor registered successfully!",
                     [{ text: "OK", onPress: () => router.push('/(admin)/doctor') }]
                 );
             } else {

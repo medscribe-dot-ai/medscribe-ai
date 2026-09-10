@@ -125,6 +125,8 @@ class SOAPReport(Base):
     assessment     = Column(Text)
     plan           = Column(Text)
     full_soap_note = Column(Text)   # MedGemma + Groq endorsed complete note
+    # Short deterministic summary for next-visit / receptionist (nullable for legacy rows)
+    clinical_summary = Column(Text, nullable=True)
     generated_at   = Column(DateTime, default=datetime.datetime.utcnow)
 
     consultation = relationship("Consultation", back_populates="soap_report")

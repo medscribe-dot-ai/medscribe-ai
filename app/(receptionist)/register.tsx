@@ -244,32 +244,28 @@ const RegisterPatient = () => {
         <View style={{ flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.55)' }} className="items-center justify-center px-8">
           <View className="w-full bg-white rounded-3xl p-7 items-center shadow-lg">
 
-            {/* PRINT BUTTON — TOP RIGHT */}
-            <TouchableOpacity
-              className="absolute top-4 right-4 w-9 h-9 bg-slate-50 border border-slate-200 rounded-full items-center justify-center z-10"
-            >
-              <MaterialCommunityIcons name="printer-outline" size={18} color="#475569" />
-            </TouchableOpacity>
-
             <View className="w-16 h-16 bg-emerald-50 rounded-full items-center justify-center mb-4">
               <MaterialCommunityIcons name="check-circle" size={36} color="#10B981" />
             </View>
 
             <Text className="text-lg font-black text-slate-900 text-center">Patient Registered</Text>
             <Text className="text-sm text-slate-500 text-center mt-1">
-              {registeredPatient?.name} is registered. Next: book their appointment.
+              {registeredPatient?.name} is registered. Book an appointment to generate a queue token.
             </Text>
 
-            {/* PATIENT CODE */}
+            {/* PATIENT CODE (not a queue token) */}
             <View className="mt-6 items-center">
               <Text className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">
                 Patient Code
               </Text>
-              <View className="bg-teal-50 border-2 border-dashed border-teal-200 px-6 py-3 rounded-2xl mt-2">
-                <Text className="text-2xl font-black text-teal-700 tracking-wider">
+              <View className="bg-slate-50 border-2 border-dashed border-slate-200 px-6 py-3 rounded-2xl mt-2">
+                <Text className="text-2xl font-black text-slate-700 tracking-wider" selectable>
                   {registeredPatient?.patient_code}
                 </Text>
               </View>
+              <Text className="text-[10px] text-slate-400 mt-2 text-center px-2">
+                Permanent patient ID. Queue tokens are created when you book a visit.
+              </Text>
             </View>
 
             {/* FEE TEXT */}
@@ -341,27 +337,6 @@ const RegisterPatient = () => {
         </View>
       </Modal>
 
-      {/* FIXED BOTTOM NAVIGATION BAR */}
-      <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0 }} className="bg-white border-t border-slate-100 py-3 flex-row justify-around items-center shadow-lg">
-        <TouchableOpacity onPress={() => router.push('/(receptionist)/dashboard')} className="items-center justify-center p-2">
-          <MaterialCommunityIcons name="view-dashboard-outline" size={22} color="#94A3B8" />
-        </TouchableOpacity>
-        
-        <TouchableOpacity className="items-center justify-center">
-          <View className="bg-teal-600 px-4 py-2 rounded-xl flex-row items-center gap-x-1.5">
-            <MaterialCommunityIcons name="account-plus" size={18} color="#FFFFFF" />
-            <Text className="text-white text-xs font-bold">Register</Text>
-          </View>
-        </TouchableOpacity>
-
-        <TouchableOpacity onPress={() => router.push('/(receptionist)/patients')} className="items-center justify-center p-2">
-          <MaterialCommunityIcons name="account-group-outline" size={22} color="#94A3B8" />
-        </TouchableOpacity>
-
-        <TouchableOpacity onPress={() => router.push('/(receptionist)/settings')} className="items-center justify-center p-2">
-          <MaterialCommunityIcons name="cog-outline" size={22} color="#94A3B8" />
-        </TouchableOpacity>
-      </View>
     </SafeAreaView>
   );
 };

@@ -57,7 +57,7 @@ export default function DoctorLayout() {
       />
 
       <Tabs.Screen
-        name="queue/index"
+        name="queue/patient_queue"
         options={{
           title: 'Queue',
           tabBarLabel: 'Queue',
@@ -72,6 +72,14 @@ export default function DoctorLayout() {
         name="report/[id]"
         options={{
           href: null,
+        }}
+      />
+
+      <Tabs.Screen
+        name="soap-review/[id]"
+        options={{
+          href: null,
+          title: 'SOAP Review',
         }}
       />
 

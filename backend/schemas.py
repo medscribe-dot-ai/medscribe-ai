@@ -184,6 +184,8 @@ class PatientListResponse(BaseModel):
     status: Optional[str]
     created_at: Optional[datetime.datetime]
     visit_count: int = 0
+    # Latest completed visit short summary only (never full SOAP)
+    latest_clinical_summary: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -256,6 +258,7 @@ class PatientHistoryVisit(BaseModel):
     # Populated only when consultation.status == "completed"
     soap_note: Optional[str] = None
     soap_sections: Optional[PatientHistorySoapSections] = None
+    clinical_summary: Optional[str] = None
 
 
 class PatientHistoryResponse(BaseModel):

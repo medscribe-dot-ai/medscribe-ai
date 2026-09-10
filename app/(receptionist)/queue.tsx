@@ -6,16 +6,16 @@ import {
   TextInput,
   TouchableOpacity,
   SafeAreaView,
-  Dimensions,
   ActivityIndicator,
   Alert,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useRouter, useFocusEffect } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useFocusEffect } from 'expo-router';
 import axios from 'axios';
 import { API_URL } from '../../src/config/api';
-
-const { height: screenHeight } = Dimensions.get('window');
+import { printQueueToken } from '../../src/utils/printQueueToken';
+import { ReceptionistMenuButton } from '../../src/components/receptionist/ReceptionistNavMenu';
 
 interface QueueAppointment {
   appointment_id: number;
@@ -33,7 +33,6 @@ interface QueueAppointment {
 const QUEUE_STATUSES = new Set(['waiting', 'in_progress', 'completed']);
 
 const PatientQueue = () => {
-  const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('Waiting');
   const [queueData, setQueueData] = useState<QueueAppointment[]>([]);
@@ -97,7 +96,17 @@ const PatientQueue = () => {
   const updateStatus = async (appointmentId: number, status: string) => {
     try {
       setUpdatingId(appointmentId);
-      await axios.patch(`${API_URL}/appointments/${appointmentId}/status`, { status });
+      const raw = await AsyncStorage.getItem('user_data');
+      const user = raw ? JSON.parse(raw) : null;
+      if (!user?.user_id) {
+        Alert.alert('Session Expired', 'Please log in again.');
+        return;
+      }
+      await axios.patch(
+        `${API_URL}/appointments/${appointmentId}/status`,
+        { status },
+        { headers: { 'X-User-Id': String(user.user_id) } }
+      );
       await fetchQueue();
     } catch (error: any) {
       const detail = error.response?.data?.detail || 'Could not update status.';
@@ -122,44 +131,25 @@ const PatientQueue = () => {
   const waitingCount = queueData.filter((p) => (p.status || '').toLowerCase() === 'waiting').length;
 
   return (
-    <SafeAreaView style={{ flex: 1, height: screenHeight }} className="bg-white">
+    <SafeAreaView style={{ flex: 1 }} className="bg-white">
       <ScrollView
         nestedScrollEnabled={true}
         showsVerticalScrollIndicator={true}
-        contentContainerStyle={{ flexGrow: 1, paddingBottom: 160 }}
+        contentContainerStyle={{ flexGrow: 1, paddingBottom: 28 }}
         style={{ flex: 1 }}
       >
-        {/* HEADER SECTION */}
-        <View className="px-6 pt-6 pb-4 bg-white flex-row justify-between items-start">
-          <View>
-            <View className="flex-row items-center gap-x-2">
-              <Text className="text-lg font-bold text-slate-900">MedScribe AI</Text>
-              <View className="bg-purple-100 px-2.5 py-0.5 rounded-full">
-                <Text className="text-[10px] font-bold text-purple-600">Receptionist</Text>
-              </View>
-            </View>
-          </View>
-
-          <View className="flex-row items-center gap-x-3">
-            <TouchableOpacity className="p-2 bg-slate-50 rounded-full relative border border-slate-100">
-              <MaterialCommunityIcons name="bell-outline" size={20} color="#64748B" />
-              <View className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border border-white" />
-            </TouchableOpacity>
-            <View className="w-10 h-10 bg-teal-50 rounded-full items-center justify-center border border-teal-100">
-              <Text className="text-sm font-bold text-teal-600">AH</Text>
-            </View>
+        {/* HEADER */}
+        <View className="px-6 pt-4 pb-2 bg-white flex-row justify-between items-center">
+          <ReceptionistMenuButton title="Queue" />
+          <View className="bg-teal-50 border border-teal-100 px-3 py-1 rounded-full">
+            <Text className="text-xs font-bold text-teal-700">{waitingCount} waiting</Text>
           </View>
         </View>
 
         {/* TITLE BAR */}
-        <View className="px-6 mt-4 flex-row justify-between items-center">
-          <View>
-            <Text className="text-2xl font-black text-slate-900">Patient Queue</Text>
-            <View className="h-1 bg-teal-600 w-24 mt-1 rounded-full" />
-          </View>
-          <View className="bg-teal-50 border border-teal-100 px-3 py-1 rounded-full">
-            <Text className="text-xs font-bold text-teal-700">{waitingCount} waiting</Text>
-          </View>
+        <View className="px-6 mt-3">
+          <Text className="text-2xl font-black text-slate-900">Patient Queue</Text>
+          <View className="h-1 bg-teal-600 w-24 mt-1 rounded-full" />
         </View>
 
         {/* SEARCH & FILTER BAR */}
@@ -187,7 +177,9 @@ const PatientQueue = () => {
               key={tab}
               onPress={() => setActiveTab(tab)}
               className={`flex-1 py-2.5 rounded-xl items-center justify-center ${
-                activeTab === tab ? 'bg-white shadow-sm border border-slate-100' : ''
+                activeTab === tab
+                  ? 'bg-white shadow-sm border border-slate-100'
+                  : 'shadow-none'
               }`}
             >
               <Text
@@ -219,9 +211,9 @@ const PatientQueue = () => {
                   <View className="flex-row justify-between items-start">
                     {/* Left: Queue token + details */}
                     <View className="flex-row items-start gap-x-4 flex-1">
-                      <View className="bg-teal-50/70 border border-teal-100 px-3 py-2 rounded-xl items-center justify-center min-w-[72px]">
-                        <Text className="text-[9px] font-bold text-teal-500 uppercase">Token</Text>
-                        <Text className="text-[11px] font-black text-teal-700 tracking-wide mt-0.5">
+                      <View className="bg-teal-50 border border-teal-200 px-3 py-2 rounded-xl items-center justify-center min-w-[80px]">
+                        <Text className="text-[9px] font-bold text-teal-500 uppercase">Queue Token</Text>
+                        <Text className="text-sm font-black text-teal-700 tracking-wide mt-0.5" selectable>
                           {item.queue_token || '—'}
                         </Text>
                       </View>
@@ -295,51 +287,50 @@ const PatientQueue = () => {
                     </View>
                   </View>
 
-                  {/* Status actions (backend PATCH transitions) */}
-                  {item.status === 'waiting' || item.status === 'in_progress' ? (
-                    <View className="flex-row gap-x-2 mt-3 pt-3 border-t border-slate-50">
-                      {item.status === 'waiting' ? (
+                  {/* Receptionist: Print Token + Cancel only (no Start/Complete) */}
+                  {item.queue_token ||
+                  item.status === 'waiting' ||
+                  item.status === 'in_progress' ? (
+                    <View className="flex-row gap-x-2 mt-3 pt-3 border-t border-slate-50 flex-wrap">
+                      {item.queue_token ? (
+                        <TouchableOpacity
+                          onPress={() =>
+                            printQueueToken({
+                              patient_name: item.patient_name,
+                              patient_code: item.patient_code,
+                              queue_token: item.queue_token,
+                              scheduled_time: item.scheduled_time,
+                              doctor_name: item.doctor_name,
+                            })
+                          }
+                          className="px-3 py-2 rounded-xl border border-teal-200 bg-teal-50 flex-row items-center gap-x-1"
+                        >
+                          <MaterialCommunityIcons name="printer-outline" size={14} color="#0D9488" />
+                          <Text className="text-teal-700 text-xs font-bold">Print Token</Text>
+                        </TouchableOpacity>
+                      ) : null}
+                      {item.status === 'waiting' || item.status === 'in_progress' ? (
                         <TouchableOpacity
                           disabled={busy}
-                          onPress={() => updateStatus(item.appointment_id, 'in_progress')}
-                          className="flex-1 bg-teal-600 py-2 rounded-xl items-center"
+                          onPress={() =>
+                            Alert.alert('Cancel visit?', 'This appointment will be cancelled.', [
+                              { text: 'No', style: 'cancel' },
+                              {
+                                text: 'Cancel',
+                                style: 'destructive',
+                                onPress: () => updateStatus(item.appointment_id, 'cancelled'),
+                              },
+                            ])
+                          }
+                          className="px-4 py-2 rounded-xl border border-slate-200 items-center justify-center"
                         >
                           {busy ? (
-                            <ActivityIndicator color="#fff" size="small" />
+                            <ActivityIndicator color="#64748B" size="small" />
                           ) : (
-                            <Text className="text-white text-xs font-bold">Start</Text>
+                            <Text className="text-slate-500 text-xs font-bold">Cancel</Text>
                           )}
                         </TouchableOpacity>
                       ) : null}
-                      {item.status === 'in_progress' ? (
-                        <TouchableOpacity
-                          disabled={busy}
-                          onPress={() => updateStatus(item.appointment_id, 'completed')}
-                          className="flex-1 bg-emerald-600 py-2 rounded-xl items-center"
-                        >
-                          {busy ? (
-                            <ActivityIndicator color="#fff" size="small" />
-                          ) : (
-                            <Text className="text-white text-xs font-bold">Complete</Text>
-                          )}
-                        </TouchableOpacity>
-                      ) : null}
-                      <TouchableOpacity
-                        disabled={busy}
-                        onPress={() =>
-                          Alert.alert('Cancel visit?', 'This appointment will be cancelled.', [
-                            { text: 'No', style: 'cancel' },
-                            {
-                              text: 'Cancel',
-                              style: 'destructive',
-                              onPress: () => updateStatus(item.appointment_id, 'cancelled'),
-                            },
-                          ])
-                        }
-                        className="px-4 py-2 rounded-xl border border-slate-200 items-center justify-center"
-                      >
-                        <Text className="text-slate-500 text-xs font-bold">Cancel</Text>
-                      </TouchableOpacity>
                     </View>
                   ) : null}
                 </View>
@@ -353,28 +344,6 @@ const PatientQueue = () => {
           )}
         </View>
       </ScrollView>
-
-      {/* FIXED BOTTOM NAVIGATION BAR */}
-      <View
-        style={{ position: 'absolute', bottom: 0, left: 0, right: 0 }}
-        className="bg-white border-t border-slate-100 py-3 flex-row justify-around items-center shadow-lg"
-      >
-        <TouchableOpacity onPress={() => router.push('/(receptionist)/dashboard')} className="items-center justify-center p-2">
-          <MaterialCommunityIcons name="view-dashboard-outline" size={22} color="#94A3B8" />
-        </TouchableOpacity>
-
-        <TouchableOpacity onPress={() => router.push('/(receptionist)/register')} className="items-center justify-center p-2">
-          <MaterialCommunityIcons name="account-plus-outline" size={22} color="#94A3B8" />
-        </TouchableOpacity>
-
-        <TouchableOpacity onPress={() => router.push('/(receptionist)/patients')} className="items-center justify-center p-2">
-          <MaterialCommunityIcons name="account-group-outline" size={22} color="#94A3B8" />
-        </TouchableOpacity>
-
-        <TouchableOpacity onPress={() => router.push('/(receptionist)/settings')} className="items-center justify-center p-2">
-          <MaterialCommunityIcons name="cog-outline" size={22} color="#94A3B8" />
-        </TouchableOpacity>
-      </View>
     </SafeAreaView>
   );
 };

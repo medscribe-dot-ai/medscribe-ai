@@ -63,6 +63,7 @@ export default function FullQueue() {
         pathname: '/(doctor)/record',
         params: {
           appointment_id: String(item.appointment_id),
+          patient_id: String(item.patient_id),
           queue_token: item.queue_token || '',
           patient_name: item.patient_name || '',
           patient_code: item.patient_code || '',

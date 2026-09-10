@@ -1,9 +1,18 @@
 import React, { useState, useCallback } from 'react';
-import { View, Text, ScrollView, TextInput, TouchableOpacity, ActivityIndicator } from 'react-native';
+import {
+  View,
+  Text,
+  ScrollView,
+  TextInput,
+  TouchableOpacity,
+  ActivityIndicator,
+  SafeAreaView,
+} from 'react-native';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
 import axios from 'axios';
 import { API_URL } from '../../src/config/api';
+import { ReceptionistMenuButton } from '../../src/components/receptionist/ReceptionistNavMenu';
 
 interface Patient {
   patient_id: number;
@@ -15,6 +24,7 @@ interface Patient {
   status: string | null;
   created_at: string | null;
   visit_count: number;
+  latest_clinical_summary?: string | null;
 }
 
 const PatientsPage = () => {
@@ -24,12 +34,19 @@ const PatientsPage = () => {
   const [loading, setLoading] = useState(true);
 
   const getInitials = (name: string) =>
-    name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2);
+    name
+      .split(' ')
+      .map((n) => n[0])
+      .join('')
+      .toUpperCase()
+      .slice(0, 2);
 
   const formatDate = (dateStr: string | null) => {
     if (!dateStr) return '—';
     return new Date(dateStr).toLocaleDateString('en-US', {
-      year: 'numeric', month: 'short', day: 'numeric',
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
     });
   };
 
@@ -41,20 +58,18 @@ const PatientsPage = () => {
       });
       setPatients(response.data);
     } catch (error: any) {
-      console.error("Failed to fetch patients:", error.response?.data || error.message);
+      console.error('Failed to fetch patients:', error.response?.data || error.message);
     } finally {
       setLoading(false);
     }
   };
 
-  // Refetch every time this screen comes into focus
   useFocusEffect(
     useCallback(() => {
       fetchPatients(searchTerm);
     }, [])
   );
 
-  // Debounced search-as-you-type
   const handleSearchChange = (text: string) => {
     setSearchTerm(text);
   };
@@ -67,13 +82,18 @@ const PatientsPage = () => {
   }, [searchTerm]);
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#F8FAFC' }}>
-      {/* HEADER */}
-      <View className="px-6 py-6 bg-white border-b border-slate-100">
-        <Text className="text-2xl font-bold text-slate-900">Patients</Text>
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#F8FAFC' }}>
+      <View className="px-6 py-4 bg-white border-b border-slate-100 flex-row items-center justify-between">
+        <ReceptionistMenuButton title="Patients" />
+        <TouchableOpacity
+          onPress={() => router.push('/(receptionist)/register')}
+          className="bg-teal-600 px-3 py-2 rounded-xl flex-row items-center gap-x-1"
+        >
+          <MaterialCommunityIcons name="account-plus" size={16} color="#FFFFFF" />
+          <Text className="text-white text-xs font-bold">Register</Text>
+        </TouchableOpacity>
       </View>
 
-      {/* SEARCH BAR */}
       <View className="px-6 py-4">
         <View className="flex-row items-center bg-white border border-slate-200 rounded-xl px-4 py-3">
           <Feather name="search" size={20} color="#94A3B8" />
@@ -86,8 +106,7 @@ const PatientsPage = () => {
         </View>
       </View>
 
-      {/* PATIENT LIST */}
-      <ScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 100 }}>
+      <ScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 24 }}>
         {loading && patients.length === 0 ? (
           <ActivityIndicator size="large" color="#0D9488" style={{ marginTop: 40 }} />
         ) : patients.length === 0 ? (
@@ -123,13 +142,35 @@ const PatientsPage = () => {
                   <Text className="text-xs text-slate-400 mt-0.5">
                     📞 {p.phone || 'N/A'} • 📄 {p.visit_count} visit{p.visit_count !== 1 ? 's' : ''}
                   </Text>
-                  <Text className="text-[11px] font-semibold text-teal-600 mt-2">Book New Appointment →</Text>
+                  {p.latest_clinical_summary?.trim() ? (
+                    <View className="mt-2 bg-teal-50 border border-teal-100 rounded-xl px-3 py-2">
+                      <Text className="text-[10px] font-bold uppercase tracking-wide text-teal-700">
+                        Previous Visit Summary
+                      </Text>
+                      <Text className="text-xs text-slate-600 mt-1 leading-4" numberOfLines={4}>
+                        {p.latest_clinical_summary.trim()}
+                      </Text>
+                    </View>
+                  ) : p.visit_count > 0 ? (
+                    <Text className="text-[11px] text-slate-400 mt-2">
+                      No clinical summary available for the last completed visit.
+                    </Text>
+                  ) : (
+                    <Text className="text-[11px] text-slate-400 mt-2">
+                      No previous completed consultation.
+                    </Text>
+                  )}
+                  <Text className="text-[11px] font-semibold text-teal-600 mt-2">
+                    Book New Appointment →
+                  </Text>
                 </View>
               </View>
 
               <View className="items-end">
                 <View className="bg-slate-50 px-3 py-1 rounded-lg border border-slate-100">
-                  <Text className="text-[11px] font-bold text-slate-600">{p.department || 'Unassigned'}</Text>
+                  <Text className="text-[11px] font-bold text-slate-600">
+                    {p.department || 'Unassigned'}
+                  </Text>
                 </View>
                 <Text className="text-[10px] text-slate-400 mt-2">📅 {formatDate(p.created_at)}</Text>
               </View>
@@ -137,23 +178,7 @@ const PatientsPage = () => {
           ))
         )}
       </ScrollView>
-
-      {/* BOTTOM NAVIGATION */}
-      <View className="flex-row justify-around py-4 bg-white border-t border-slate-200" style={{ height: 80 }}>
-        <TouchableOpacity onPress={() => router.push('/(receptionist)/dashboard')} className="items-center">
-          <MaterialCommunityIcons name="view-grid-outline" size={24} color="#64748B" />
-          <Text className="text-[10px] text-slate-500 mt-1">Home</Text>
-        </TouchableOpacity>
-        <TouchableOpacity className="items-center">
-          <MaterialCommunityIcons name="account-group" size={24} color="#0D9488" />
-          <Text className="text-[10px] text-teal-700 font-bold mt-1">Patients</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => router.push('/(receptionist)/settings')} className="items-center">
-          <MaterialCommunityIcons name="cog-outline" size={24} color="#64748B" />
-          <Text className="text-[10px] text-slate-500 mt-1">Settings</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
+    </SafeAreaView>
   );
 };
 

@@ -17,27 +17,6 @@ export interface DoctorQueueItem {
   created_at?: string | null;
 }
 
-export interface PatientReport {
-  id: string;
-  name: string;
-  age: number;
-  condition: string;
-  status: string;
-  arrivalTime?: string;
-  vitals?: { bp?: string; temp?: string; weight?: string };
-  receptionNotes?: string;
-}
-
-type PatientListItem = {
-  patient_id: number;
-  name: string;
-  patient_code: string | null;
-  age: number | null;
-  department: string | null;
-  status: string | null;
-  created_at: string | null;
-};
-
 const ACTIVE_QUEUE_STATUSES = new Set(['waiting', 'in_progress']);
 
 const todayParam = () => {
@@ -68,9 +47,17 @@ export const getDoctorQueue = async (doctorId?: number | null): Promise<DoctorQu
 };
 
 export const startConsultationVisit = async (appointmentId: number): Promise<DoctorQueueItem> => {
-  const res = await axios.patch(`${API_URL}/appointments/${appointmentId}/status`, {
-    status: 'in_progress',
-  });
+  const raw = await AsyncStorage.getItem('user_data');
+  const user = raw ? JSON.parse(raw) : null;
+  if (!user?.user_id) {
+    throw new Error('Not logged in as doctor');
+  }
+
+  const res = await axios.patch(
+    `${API_URL}/appointments/${appointmentId}/status`,
+    { status: 'in_progress' },
+    { headers: { 'X-User-Id': String(user.user_id) } }
+  );
   return res.data;
 };
 
@@ -107,26 +94,3 @@ export const getDoctorDashboard = async () => {
 
 /** @deprecated Prefer getDoctorQueue — kept name for existing imports */
 export const getFullQueue = async () => getDoctorQueue();
-
-export const getPatientReport = async (patientId: string): Promise<PatientReport | null> => {
-  const res = await axios.get(`${API_URL}/patients`);
-  const patients = (res.data || []) as PatientListItem[];
-  const match = patients.find(
-    (p) => String(p.patient_id) === String(patientId) || p.patient_code === patientId
-  );
-  if (!match) return null;
-
-  return {
-    id: String(match.patient_id),
-    name: match.name,
-    age: match.age ?? 0,
-    condition: match.department || '—',
-    status: match.status || 'waiting',
-    arrivalTime: match.created_at
-      ? new Date(match.created_at).toLocaleTimeString('en-US', {
-          hour: '2-digit',
-          minute: '2-digit',
-        })
-      : undefined,
-  };
-};

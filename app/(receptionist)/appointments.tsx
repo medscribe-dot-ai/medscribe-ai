@@ -8,10 +8,12 @@ import {
   ActivityIndicator,
   RefreshControl,
 } from 'react-native';
-import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import axios from 'axios';
 import { API_URL } from '../../src/config/api';
+import { printQueueToken } from '../../src/utils/printQueueToken';
+import { ReceptionistMenuButton } from '../../src/components/receptionist/ReceptionistNavMenu';
 
 interface Appointment {
   appointment_id: number;
@@ -84,12 +86,7 @@ const AppointmentsPage = () => {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#F8FAFC' }}>
       <View className="px-6 py-4 flex-row items-center justify-between border-b border-slate-100 bg-white">
-        <View className="flex-row items-center">
-          <TouchableOpacity onPress={() => router.back()}>
-            <Feather name="arrow-left" size={24} color="#1E293B" />
-          </TouchableOpacity>
-          <Text className="text-lg font-bold ml-4 text-slate-800">Appointments</Text>
-        </View>
+        <ReceptionistMenuButton title="Appointments" />
         <TouchableOpacity
           onPress={() => router.push('/(receptionist)/patients')}
           className="bg-teal-600 px-3 py-2 rounded-xl flex-row items-center gap-x-1"
@@ -100,7 +97,7 @@ const AppointmentsPage = () => {
       </View>
 
       <ScrollView
-        contentContainerStyle={{ padding: 24, paddingBottom: 100 }}
+        contentContainerStyle={{ padding: 24, paddingBottom: 24 }}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -149,8 +146,7 @@ const AppointmentsPage = () => {
                         {app.doctor_name || 'Doctor'} • {formatTime(app.scheduled_time)}
                       </Text>
                       <Text className="text-[11px] text-slate-400 mt-0.5">
-                        {app.patient_code || '—'}
-                        {app.queue_token ? ` · Token ${app.queue_token}` : ''}
+                        Code: {app.patient_code || '—'}
                       </Text>
                     </View>
                   </View>
@@ -158,23 +154,37 @@ const AppointmentsPage = () => {
                     <Text className={`text-[10px] font-bold ${style.text}`}>{style.label}</Text>
                   </View>
                 </View>
+
+                {app.queue_token ? (
+                  <View className="mt-3 pt-3 border-t border-slate-50 flex-row items-center justify-between gap-x-3">
+                    <View className="flex-1 bg-teal-50 border border-dashed border-teal-200 px-3 py-2 rounded-xl">
+                      <Text className="text-[9px] font-bold text-teal-500 uppercase">Queue Token</Text>
+                      <Text className="text-base font-black text-teal-700 tracking-wide mt-0.5" selectable>
+                        {app.queue_token}
+                      </Text>
+                    </View>
+                    <TouchableOpacity
+                      onPress={() =>
+                        printQueueToken({
+                          patient_name: app.patient_name,
+                          patient_code: app.patient_code,
+                          queue_token: app.queue_token,
+                          scheduled_time: app.scheduled_time,
+                          doctor_name: app.doctor_name,
+                        })
+                      }
+                      className="bg-teal-600 px-3 py-2.5 rounded-xl flex-row items-center gap-x-1.5"
+                    >
+                      <MaterialCommunityIcons name="printer-outline" size={16} color="#FFFFFF" />
+                      <Text className="text-white text-xs font-bold">Print Token</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : null}
               </View>
             );
           })
         )}
       </ScrollView>
-
-      <View className="absolute bottom-0 left-0 right-0 bg-white border-t border-slate-100 py-3 flex-row justify-around items-center">
-        <TouchableOpacity onPress={() => router.push('/(receptionist)/dashboard')} className="items-center">
-          <MaterialCommunityIcons name="view-grid-outline" size={24} color="#94A3B8" />
-        </TouchableOpacity>
-        <TouchableOpacity className="items-center">
-          <MaterialCommunityIcons name="calendar-month" size={24} color="#0D9488" />
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => router.push('/(receptionist)/settings')} className="items-center">
-          <MaterialCommunityIcons name="cog-outline" size={24} color="#94A3B8" />
-        </TouchableOpacity>
-      </View>
     </SafeAreaView>
   );
 };

@@ -19,13 +19,34 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { getPatientReport, PatientReport as PatientReportData } from '@/src/services/doctorService';
+import { getPatientById, PatientListItem } from '@/src/services/patientService';
 import { colors } from '@/src/theme/colors';
+
+function titleCaseStatus(raw: string | null | undefined): string {
+  if (!raw || !raw.trim()) return '—';
+  return raw
+    .trim()
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function formatRegisteredAt(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
 
 export default function PatientReport() {
   const { id } = useLocalSearchParams();
   const router = useRouter();
-  const [patient, setPatient] = useState<PatientReportData | null>(null);
+  const [patient, setPatient] = useState<PatientListItem | null>(null);
   const [loading, setLoading] = useState(true);
   const [savedAudioUri, setSavedAudioUri] = useState<string | null>(null);
 
@@ -41,11 +62,12 @@ export default function PatientReport() {
       setLoading(false);
       return;
     }
-    getPatientReport(id as string)
-      .then((data: PatientReportData | null) => setPatient(data))
+    getPatientById(id as string)
+      .then((data) => setPatient(data))
       .catch((err: unknown) => {
-        console.log('Patient report error:', err);
+        console.log('Patient load error:', err);
         Alert.alert('Error', err instanceof Error ? err.message : String(err));
+        setPatient(null);
       })
       .finally(() => setLoading(false));
   }, [id]);
@@ -88,11 +110,16 @@ export default function PatientReport() {
     }
   }
 
-  if (loading) return (
-    <View style={{ backgroundColor: colors.background }} className="flex-1 justify-center items-center">
-      <ActivityIndicator size="large" color={colors.primary} />
-    </View>
-  );
+  if (loading) {
+    return (
+      <View
+        style={{ backgroundColor: colors.background }}
+        className="flex-1 justify-center items-center"
+      >
+        <ActivityIndicator size="large" color={colors.primary} />
+      </View>
+    );
+  }
 
   if (!patient) {
     return (
@@ -100,89 +127,114 @@ export default function PatientReport() {
         <StatusBar style="dark" />
         <View className="px-6" style={{ marginTop: Platform.OS === 'android' ? 40 : 10 }}>
           <TouchableOpacity
-            onPress={() => router.replace("/(doctor)/dashboard")}
+            onPress={() => router.replace('/(doctor)/dashboard')}
             className="flex-row items-center py-2"
           >
-            <View style={{ backgroundColor: colors.accent }} className="w-8 h-8 rounded-full items-center justify-center">
-              <Text style={{ color: colors.primary }} className="font-bold">←</Text>
+            <View
+              style={{ backgroundColor: colors.accent }}
+              className="w-8 h-8 rounded-full items-center justify-center"
+            >
+              <Text style={{ color: colors.primary }} className="font-bold">
+                ←
+              </Text>
             </View>
-            <Text style={{ color: colors.primary }} className="ml-3 font-bold text-base">Dashboard</Text>
+            <Text style={{ color: colors.primary }} className="ml-3 font-bold text-base">
+              Dashboard
+            </Text>
           </TouchableOpacity>
         </View>
         <View className="flex-1 justify-center items-center px-6">
-          <Text style={{ color: colors.darkText }} className="text-lg font-bold">Patient not found</Text>
+          <Text style={{ color: colors.darkText }} className="text-lg font-bold">
+            Patient not found
+          </Text>
         </View>
       </SafeAreaView>
     );
   }
 
+  const codeOrId = patient.patient_code || String(patient.patient_id);
+  const ageLabel =
+    patient.age != null ? `${patient.age} years old` : 'Age unavailable';
+  const departmentLabel = patient.department?.trim() || 'Department unavailable';
+  const registeredAt = formatRegisteredAt(patient.created_at);
+
   return (
     <SafeAreaView style={{ backgroundColor: colors.background }} className="flex-1">
       <StatusBar style="dark" />
 
-      {/* Navigation Bar */}
-      <View
-        className="px-6"
-        style={{ marginTop: Platform.OS === 'android' ? 40 : 10 }}
-      >
+      <View className="px-6" style={{ marginTop: Platform.OS === 'android' ? 40 : 10 }}>
         <TouchableOpacity
-          onPress={() => router.replace("/(doctor)/dashboard")}
+          onPress={() => router.replace('/(doctor)/dashboard')}
           className="flex-row items-center py-2"
         >
-          <View style={{ backgroundColor: colors.accent }} className="w-8 h-8 rounded-full items-center justify-center">
-            <Text style={{ color: colors.primary }} className="font-bold">←</Text>
+          <View
+            style={{ backgroundColor: colors.accent }}
+            className="w-8 h-8 rounded-full items-center justify-center"
+          >
+            <Text style={{ color: colors.primary }} className="font-bold">
+              ←
+            </Text>
           </View>
-          <Text style={{ color: colors.primary }} className="ml-3 font-bold text-base">Dashboard</Text>
+          <Text style={{ color: colors.primary }} className="ml-3 font-bold text-base">
+            Dashboard
+          </Text>
         </TouchableOpacity>
       </View>
 
       <ScrollView className="px-6 flex-1" showsVerticalScrollIndicator={false}>
-
-        {/* Patient Profile Header */}
         <View className="mt-8 mb-6">
-          <Text style={{ color: colors.mutedText }} className="text-xs font-bold uppercase tracking-wider mb-1">
-            Patient ID: {id}
+          <Text
+            style={{ color: colors.mutedText }}
+            className="text-xs font-bold uppercase tracking-wider mb-1"
+          >
+            Patient: {codeOrId}
           </Text>
-          <Text style={{ color: colors.darkText }} className="text-4xl font-bold">{patient.name}</Text>
+          <Text style={{ color: colors.darkText }} className="text-4xl font-bold">
+            {patient.name}
+          </Text>
           <Text style={{ color: colors.mutedText }} className="text-lg mt-1">
-            {patient.age} years old • {patient.condition}
+            {ageLabel} • {departmentLabel}
+          </Text>
+          <Text style={{ color: colors.mutedText }} className="text-sm mt-2 font-semibold">
+            Status: {titleCaseStatus(patient.status)}
+            {patient.phone ? ` • ${patient.phone}` : ''}
+          </Text>
+          {registeredAt ? (
+            <Text style={{ color: colors.mutedText }} className="text-sm mt-1 font-semibold">
+              Registered: {registeredAt}
+            </Text>
+          ) : null}
+          <Text style={{ color: colors.mutedText }} className="text-sm mt-1 font-semibold">
+            Visits on record: {patient.visit_count ?? 0}
           </Text>
         </View>
 
-        {/* Vitals & Summary Section */}
-        <View style={{ backgroundColor: 'white', borderColor: colors.accent }} className="p-6 rounded-3xl border shadow-sm mb-6">
-          <Text style={{ color: colors.primary }} className="font-bold mb-4 text-lg">Reception Vitals</Text>
-          <View className="flex-row justify-between mb-4">
-            <View className="items-center">
-              <Text style={{ color: colors.mutedText }} className="text-[10px] uppercase font-bold mb-1">BP</Text>
-              <Text style={{ color: colors.darkText }} className="text-base font-bold">{patient.vitals?.bp || 'N/A'}</Text>
-            </View>
-            <View className="w-[1px] h-10 bg-teal-50" />
-            <View className="items-center">
-              <Text style={{ color: colors.mutedText }} className="text-[10px] uppercase font-bold mb-1">Temp</Text>
-              <Text style={{ color: colors.darkText }} className="text-base font-bold">{patient.vitals?.temp || 'N/A'}</Text>
-            </View>
-            <View className="w-[1px] h-10 bg-teal-50" />
-            <View className="items-center">
-              <Text style={{ color: colors.mutedText }} className="text-[10px] uppercase font-bold mb-1">Weight</Text>
-              <Text style={{ color: colors.darkText }} className="text-base font-bold">{patient.vitals?.weight || 'N/A'}</Text>
-            </View>
-          </View>
-
-          <View className="pt-4 border-t border-teal-50">
-            <Text className="text-red-500 font-bold text-sm uppercase">No Known Drug Allergies</Text>
-          </View>
+        {/* No vitals API — explicit empty state (not fake values) */}
+        <View
+          style={{ backgroundColor: 'white', borderColor: colors.accent }}
+          className="p-6 rounded-3xl border shadow-sm mb-6"
+        >
+          <Text style={{ color: colors.primary }} className="font-bold mb-2 text-lg">
+            Reception Vitals
+          </Text>
+          <Text style={{ color: colors.mutedText }} className="leading-6 text-base font-medium">
+            Vitals are not available. This clinic does not store BP, temperature, or weight on the
+            patient record yet.
+          </Text>
         </View>
 
-        {/* Reason for Visit */}
         <View style={{ backgroundColor: colors.accent }} className="p-6 rounded-3xl mb-8">
-          <Text style={{ color: colors.primary }} className="font-bold mb-2 text-lg">Reason for Visit</Text>
-          <Text style={{ color: colors.primary, opacity: 0.8 }} className="leading-6 text-base font-medium">
-            {patient.receptionNotes || "No notes available."}
+          <Text style={{ color: colors.primary }} className="font-bold mb-2 text-lg">
+            Reason for Visit
+          </Text>
+          <Text
+            style={{ color: colors.primary, opacity: 0.8 }}
+            className="leading-6 text-base font-medium"
+          >
+            Reception notes are not available for this patient.
           </Text>
         </View>
 
-        {/* --- RECORDING UI SECTION --- */}
         <View className="items-center mb-12">
           <TouchableOpacity
             onPress={isRecording ? stopRecording : startRecording}
@@ -195,14 +247,17 @@ export default function PatientReport() {
             className="items-center justify-center shadow-xl"
           >
             <MaterialCommunityIcons
-              name={isRecording ? "stop" : "microphone"}
+              name={isRecording ? 'stop' : 'microphone'}
               size={40}
               color="white"
             />
           </TouchableOpacity>
 
-          <Text className="mt-4 font-bold text-lg" style={{ color: isRecording ? '#EF4444' : colors.darkText }}>
-            {isRecording ? "Recording Consultation..." : "Tap to Start Examination"}
+          <Text
+            className="mt-4 font-bold text-lg"
+            style={{ color: isRecording ? '#EF4444' : colors.darkText }}
+          >
+            {isRecording ? 'Recording Consultation...' : 'Tap to Start Examination'}
           </Text>
 
           {savedAudioUri && !isRecording && (

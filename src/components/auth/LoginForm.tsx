@@ -22,18 +22,48 @@ const LoginForm = () => {
 
   const [errors, setErrors] = useState<{ identifier?: string; password?: string }>({});
 
-  // Wake up Render server when login screen opens
+  // Wake up Render server when login screen opens (retry for cold starts)
   useEffect(() => {
-    const wakeUpServer = async () => {
-      try {
-        setServerStatus('checking');
-        await fetch(`${API_URL}/doctors`);
-        setServerStatus('ready');
-      } catch (e) {
-        setServerStatus('offline');
+    let cancelled = false;
+
+    const checkServer = async () => {
+      setServerStatus('checking');
+
+      const maxAttempts = 4;
+      const delayMs = 2500;
+      const timeoutMs = 15000;
+
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        if (cancelled) return;
+
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+        try {
+          const res = await fetch(`${API_URL}/doctors`, { signal: controller.signal });
+          clearTimeout(timer);
+          console.log('[health]', attempt, API_URL, res.status, res.ok);
+          if (res.ok) {
+            if (!cancelled) setServerStatus('ready');
+            return;
+          }
+        } catch (err) {
+          clearTimeout(timer);
+          console.log('[health] error', attempt, API_URL, err);
+        }
+
+        if (attempt < maxAttempts && !cancelled) {
+          await new Promise((r) => setTimeout(r, delayMs));
+        }
       }
+
+      if (!cancelled) setServerStatus('offline');
     };
-    wakeUpServer();
+
+    checkServer();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const validate = () => {

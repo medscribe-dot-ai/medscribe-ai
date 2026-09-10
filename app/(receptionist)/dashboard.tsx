@@ -1,12 +1,21 @@
 import React, { useState, useCallback } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, SafeAreaView, Dimensions, ActivityIndicator } from 'react-native';
+import {
+  View,
+  Text,
+  ScrollView,
+  TouchableOpacity,
+  SafeAreaView,
+  ActivityIndicator,
+} from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { API_URL } from '../../src/config/api';
-
-const { height: screenHeight } = Dimensions.get('window');
+import {
+  ReceptionistMenuButton,
+  confirmReceptionistLogout,
+} from '../../src/components/receptionist/ReceptionistNavMenu';
 
 interface Stats {
   registered_today: number;
@@ -38,7 +47,12 @@ const ReceptionistDashboard = () => {
   });
 
   const getInitials = (name: string) =>
-    name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2);
+    name
+      .split(' ')
+      .map((n) => n[0])
+      .join('')
+      .toUpperCase()
+      .slice(0, 2);
 
   const getTimeAgo = (dateStr: string) => {
     const diffMs = Date.now() - new Date(dateStr).getTime();
@@ -68,13 +82,12 @@ const ReceptionistDashboard = () => {
       setStats(statsRes.data);
       setRecentPatients(recentRes.data);
     } catch (error: any) {
-      console.error("Failed to load receptionist dashboard:", error.response?.data || error.message);
+      console.error('Failed to load receptionist dashboard:', error.response?.data || error.message);
     } finally {
       setLoading(false);
     }
   };
 
-  // Refetch every time the screen comes back into focus (e.g. after registering a patient)
   useFocusEffect(
     useCallback(() => {
       loadDashboardData();
@@ -82,30 +95,28 @@ const ReceptionistDashboard = () => {
   );
 
   return (
-    <SafeAreaView style={{ flex: 1, height: screenHeight }} className="bg-white">
-      <ScrollView 
-        nestedScrollEnabled={true}
-        showsVerticalScrollIndicator={true} 
-        contentContainerStyle={{ flexGrow: 1, paddingBottom: 160 }}
+    <SafeAreaView style={{ flex: 1 }} className="bg-white">
+      <ScrollView
+        nestedScrollEnabled
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ flexGrow: 1, paddingBottom: 28 }}
         style={{ flex: 1 }}
       >
-        {/* HEADER SECTION */}
-        <View className="px-6 pt-6 pb-4 bg-white flex-row justify-between items-start">
-          <View>
-            <View className="flex-row items-center gap-x-2">
-              <Text className="text-lg font-bold text-slate-900">MedScribe AI</Text>
-              <View className="bg-purple-100 px-2.5 py-0.5 rounded-full">
-                <Text className="text-[10px] font-bold text-purple-600">Receptionist</Text>
-              </View>
-            </View>
+        {/* HEADER */}
+        <View className="px-6 pt-4 pb-2 flex-row justify-between items-start">
+          <View className="flex-1 pr-3">
+            <ReceptionistMenuButton />
             <Text className="text-3xl font-black text-slate-900 mt-4">Hello, {receptionistName}</Text>
             <Text className="text-sm font-semibold text-slate-400 mt-0.5">{today}</Text>
           </View>
 
-          <View className="flex-row items-center gap-x-3 mt-1">
-            <TouchableOpacity className="p-2 bg-slate-50 rounded-full relative border border-slate-100">
-              <MaterialCommunityIcons name="bell-outline" size={20} color="#64748B" />
-              <View className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border border-white" />
+          <View className="flex-row items-center gap-x-2 mt-1">
+            <TouchableOpacity
+              onPress={() => confirmReceptionistLogout(router)}
+              className="w-10 h-10 bg-red-50 border border-red-100 rounded-xl items-center justify-center"
+              accessibilityLabel="Logout"
+            >
+              <MaterialCommunityIcons name="logout" size={20} color="#EF4444" />
             </TouchableOpacity>
             <View className="w-10 h-10 bg-teal-50 rounded-full items-center justify-center border border-teal-100">
               <Text className="text-sm font-bold text-teal-600">{getInitials(receptionistName)}</Text>
@@ -113,122 +124,174 @@ const ReceptionistDashboard = () => {
           </View>
         </View>
 
-        {/* ANALYTICS CARDS */}
-        {loading && !stats ? (
-          <ActivityIndicator size="large" color="#0D9488" className="my-8" />
-        ) : (
-          <View className="px-6 pt-2 flex-row flex-wrap justify-between gap-y-4">
-            <View className="w-[48%] bg-white p-4 rounded-2xl border border-slate-100 shadow-sm justify-between min-h-[115px]">
-              <View className="flex-row justify-between items-start">
-                <View className="flex-1 pr-1">
-                  <Text className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Registered Today</Text>
-                  <Text className="text-2xl font-black text-slate-800 mt-2">{stats?.registered_today ?? 0}</Text>
+        {/* TODAY AT A GLANCE */}
+        <View className="px-6 mt-5">
+          <Text className="text-sm font-bold text-slate-800 mb-3">Today at a glance</Text>
+          {loading && !stats ? (
+            <ActivityIndicator size="large" color="#0D9488" className="my-6" />
+          ) : (
+            <View className="flex-row flex-wrap justify-between gap-y-3">
+              <TouchableOpacity
+                onPress={() => router.push('/(receptionist)/patients')}
+                className="w-[48%] bg-white p-4 rounded-2xl border border-slate-100 shadow-sm min-h-[100px]"
+              >
+                <View className="flex-row justify-between items-start">
+                  <View className="flex-1 pr-1">
+                    <Text className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                      Registered
+                    </Text>
+                    <Text className="text-2xl font-black text-slate-800 mt-2">
+                      {stats?.registered_today ?? 0}
+                    </Text>
+                  </View>
+                  <View className="p-2 bg-teal-50 rounded-xl">
+                    <MaterialCommunityIcons name="account-plus-outline" size={18} color="#0D9488" />
+                  </View>
                 </View>
-                <View className="p-2 bg-teal-50 rounded-xl">
-                  <MaterialCommunityIcons name="account-plus-outline" size={18} color="#0D9488" />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => router.push('/(receptionist)/queue')}
+                className="w-[48%] bg-white p-4 rounded-2xl border border-slate-100 shadow-sm min-h-[100px]"
+              >
+                <View className="flex-row justify-between items-start">
+                  <View className="flex-1 pr-1">
+                    <Text className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                      In Queue
+                    </Text>
+                    <Text className="text-2xl font-black text-slate-800 mt-2">
+                      {stats?.in_queue ?? 0}
+                    </Text>
+                  </View>
+                  <View className="p-2 bg-amber-50 rounded-xl">
+                    <MaterialCommunityIcons name="account-clock-outline" size={18} color="#D97706" />
+                  </View>
+                </View>
+                <Text className="text-[11px] font-medium text-slate-400 mt-2">
+                  Across all departments
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => router.push('/(receptionist)/appointments')}
+                className="w-[48%] bg-emerald-50/50 p-4 rounded-2xl border border-emerald-100 min-h-[100px]"
+              >
+                <View className="flex-row justify-between items-start">
+                  <View className="flex-1 pr-1">
+                    <Text className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">
+                      Appointments
+                    </Text>
+                    <Text className="text-2xl font-black text-emerald-950 mt-2">
+                      {stats?.appointments_today ?? 0}
+                    </Text>
+                  </View>
+                  <View className="p-2 bg-emerald-100/70 rounded-xl">
+                    <MaterialCommunityIcons name="calendar-blank-outline" size={18} color="#059669" />
+                  </View>
+                </View>
+                <Text className="text-[11px] font-medium text-emerald-700 mt-2">Today</Text>
+              </TouchableOpacity>
+
+              <View className="w-[48%] bg-orange-50/50 p-4 rounded-2xl border border-orange-100/70 min-h-[100px]">
+                <View className="flex-row justify-between items-start">
+                  <View className="flex-1 pr-1">
+                    <Text className="text-[10px] font-bold text-orange-500 uppercase tracking-wider">
+                      Avg Wait
+                    </Text>
+                    <Text className="text-2xl font-black text-orange-950 mt-2">
+                      {stats?.avg_wait_minutes != null ? `${stats.avg_wait_minutes} min` : '—'}
+                    </Text>
+                  </View>
+                  <View className="p-2 bg-orange-100/60 rounded-xl">
+                    <MaterialCommunityIcons name="clock-outline" size={18} color="#F97316" />
+                  </View>
                 </View>
               </View>
             </View>
+          )}
+        </View>
 
-            <View className="w-[48%] bg-white p-4 rounded-2xl border border-slate-100 shadow-sm justify-between min-h-[115px]">
-              <View className="flex-row justify-between items-start">
-                <View className="flex-1 pr-1">
-                  <Text className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">In Queue</Text>
-                  <Text className="text-2xl font-black text-slate-800 mt-2">{stats?.in_queue ?? 0}</Text>
-                </View>
-                <View className="p-2 bg-slate-50 rounded-xl">
-                  <MaterialCommunityIcons name="account-multiple-outline" size={18} color="#64748B" />
-                </View>
-              </View>
-              <Text className="text-[11px] font-medium text-slate-400 mt-2">Across all departments</Text>
-            </View>
-
-            <View className="w-[48%] bg-orange-50/50 p-4 rounded-2xl border border-orange-100/70 justify-between min-h-[115px]">
-              <View className="flex-row justify-between items-start">
-                <View className="flex-1 pr-1">
-                  <Text className="text-[10px] font-bold text-orange-500 uppercase tracking-wider">Avg Wait Time</Text>
-                  <Text className="text-2xl font-black text-orange-950 mt-2">
-                    {stats?.avg_wait_minutes != null ? `${stats.avg_wait_minutes} min` : '—'}
-                  </Text>
-                </View>
-                <View className="p-2 bg-orange-100/60 rounded-xl">
-                  <MaterialCommunityIcons name="clock-outline" size={18} color="#F97316" />
-                </View>
-              </View>
-            </View>
-
-            <View className="w-[48%] bg-green-50/40 p-4 rounded-2xl border border-green-100/60 justify-between min-h-[115px]">
-              <View className="flex-row justify-between items-start">
-                <View className="flex-1 pr-1">
-                  <Text className="text-[10px] font-bold text-green-600 uppercase tracking-wider">Appointments</Text>
-                  <Text className="text-2xl font-black text-green-950 mt-2">{stats?.appointments_today ?? 0}</Text>
-                </View>
-                <View className="p-2 bg-green-100/60 rounded-xl">
-                  <MaterialCommunityIcons name="calendar-blank-outline" size={18} color="#22C55E" />
-                </View>
-              </View>
-              <Text className="text-[11px] font-medium text-green-600 mt-2">Upcoming today</Text>
-            </View>
-          </View>
-        )}
-
-        {/* QUICK ACTIONS */}
+        {/* Quick actions */}
         <View className="px-6 mt-8">
-          <Text className="text-sm font-bold text-slate-800 mb-4">Quick Actions</Text>
-          <View className="gap-y-3">
-            <TouchableOpacity 
-              onPress={() => router.push('/(receptionist)/register')}
-              className="w-full flex-row items-center justify-between p-4 bg-teal-600 rounded-2xl shadow-sm active:opacity-95"
-            >
-              <View className="flex-row items-center gap-x-3">
-                <MaterialCommunityIcons name="account-plus-outline" size={20} color="#FFFFFF" />
-                <Text className="text-sm font-bold text-white">Register New Patient</Text>
-              </View>
-              <MaterialCommunityIcons name="chevron-right" size={20} color="#FFFFFF" />
-            </TouchableOpacity>
+          <Text className="text-sm font-bold text-slate-800 mb-3">Quick actions</Text>
 
-            <TouchableOpacity 
-              onPress={() => router.push('/(receptionist)/queue')} 
-              className="w-full flex-row items-center justify-between p-4 bg-slate-50/80 border border-slate-100 rounded-2xl"
-            >
-              <View className="flex-row items-center gap-x-3">
-                <MaterialCommunityIcons name="clipboard-text-clock-outline" size={20} color="#0D9488" />
-                <Text className="text-sm font-semibold text-slate-700">View Patient Queue</Text>
+          <TouchableOpacity
+            onPress={() => router.push('/(receptionist)/register')}
+            className="w-full flex-row items-center justify-between p-4 bg-teal-600 rounded-2xl mb-3 active:opacity-95"
+          >
+            <View className="flex-row items-center gap-x-3">
+              <View className="bg-white/20 p-2 rounded-xl">
+                <MaterialCommunityIcons name="account-plus" size={22} color="#FFFFFF" />
               </View>
-              <MaterialCommunityIcons name="chevron-right" size={20} color="#94A3B8" />
-            </TouchableOpacity>
+              <View>
+                <Text className="text-base font-bold text-white">Register Patient</Text>
+                <Text className="text-[11px] text-teal-100 mt-0.5">New walk-in registration</Text>
+              </View>
+            </View>
+            <MaterialCommunityIcons name="chevron-right" size={22} color="#FFFFFF" />
+          </TouchableOpacity>
 
-            <TouchableOpacity 
+          <View className="flex-row flex-wrap justify-between gap-y-3">
+            <TouchableOpacity
               onPress={() => router.push('/(receptionist)/patients')}
-              className="w-full flex-row items-center justify-between p-4 bg-slate-50/80 border border-slate-100 rounded-2xl"
+              className="w-[48%] p-4 bg-slate-50 border border-slate-100 rounded-2xl"
             >
-              <View className="flex-row items-center gap-x-3">
-                <MaterialCommunityIcons name="magnify" size={20} color="#0D9488" />
-                <Text className="text-sm font-semibold text-slate-700">Search Patients</Text>
+              <View className="w-9 h-9 bg-teal-50 rounded-xl items-center justify-center mb-3">
+                <MaterialCommunityIcons name="calendar-plus" size={18} color="#0D9488" />
               </View>
-              <MaterialCommunityIcons name="chevron-right" size={20} color="#94A3B8" />
+              <Text className="text-sm font-bold text-slate-800">Book Appointment</Text>
+              <Text className="text-[10px] text-slate-400 mt-1">Select a patient to book</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity 
-              onPress={() => router.push('/(receptionist)/appointments')} 
-              className="w-full flex-row items-center justify-between p-4 bg-slate-50/80 border border-slate-100 rounded-2xl"
+            <TouchableOpacity
+              onPress={() => router.push('/(receptionist)/patients')}
+              className="w-[48%] p-4 bg-slate-50 border border-slate-100 rounded-2xl"
             >
-              <View className="flex-row items-center gap-x-3">
-                <MaterialCommunityIcons name="calendar-month-outline" size={20} color="#0D9488" />
-                <Text className="text-sm font-semibold text-slate-700">Appointments</Text>
+              <View className="w-9 h-9 bg-teal-50 rounded-xl items-center justify-center mb-3">
+                <MaterialCommunityIcons name="account-group-outline" size={18} color="#0D9488" />
               </View>
-              <MaterialCommunityIcons name="chevron-right" size={20} color="#94A3B8" />
+              <Text className="text-sm font-bold text-slate-800">View Patients</Text>
+              <Text className="text-[10px] text-slate-400 mt-1">Search registered patients</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => router.push('/(receptionist)/queue')}
+              className="w-[48%] p-4 bg-amber-50/60 border border-amber-100 rounded-2xl"
+            >
+              <View className="w-9 h-9 bg-amber-100/80 rounded-xl items-center justify-center mb-3">
+                <MaterialCommunityIcons name="clipboard-text-clock-outline" size={18} color="#D97706" />
+              </View>
+              <Text className="text-sm font-bold text-slate-800">Today's Queue</Text>
+              <Text className="text-[10px] text-slate-400 mt-1">
+                {stats?.in_queue ?? 0} waiting / in progress
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => router.push('/(receptionist)/appointments')}
+              className="w-[48%] p-4 bg-emerald-50/60 border border-emerald-100 rounded-2xl"
+            >
+              <View className="w-9 h-9 bg-emerald-100/80 rounded-xl items-center justify-center mb-3">
+                <MaterialCommunityIcons name="calendar-month-outline" size={18} color="#059669" />
+              </View>
+              <Text className="text-sm font-bold text-slate-800">Today's Appointments</Text>
+              <Text className="text-[10px] text-slate-400 mt-1">
+                {stats?.appointments_today ?? 0} scheduled today
+              </Text>
             </TouchableOpacity>
           </View>
         </View>
 
         {/* RECENT REGISTRATIONS */}
-        <View className="px-6 mt-8">
-          <View className="flex-row justify-between items-center mb-4">
-            <Text className="text-sm font-bold text-slate-800">Recent Registrations</Text>
-            <TouchableOpacity onPress={() => router.push('/(receptionist)/patients')} className="flex-row items-center gap-x-1">
-              <Text className="text-xs font-bold text-slate-700">View all</Text>
-              <MaterialCommunityIcons name="chevron-right" size={16} color="#475569" />
+        <View className="px-6 mt-8 mb-4">
+          <View className="flex-row justify-between items-center mb-3">
+            <Text className="text-sm font-bold text-slate-800">Recent registrations</Text>
+            <TouchableOpacity
+              onPress={() => router.push('/(receptionist)/patients')}
+              className="flex-row items-center gap-x-1"
+            >
+              <Text className="text-xs font-bold text-teal-700">View all</Text>
+              <MaterialCommunityIcons name="chevron-right" size={16} color="#0D9488" />
             </TouchableOpacity>
           </View>
 
@@ -239,26 +302,45 @@ const ReceptionistDashboard = () => {
           ) : (
             <View className="gap-y-3">
               {recentPatients.map((patient) => (
-                <View key={patient.patient_id} className="w-full bg-slate-50/60 border border-slate-100 p-3 rounded-2xl flex-row justify-between items-center">
-                  <View className="flex-row items-center gap-x-3">
+                <View
+                  key={patient.patient_id}
+                  className="w-full bg-slate-50/60 border border-slate-100 p-3 rounded-2xl flex-row justify-between items-center"
+                >
+                  <View className="flex-row items-center gap-x-3 flex-1 pr-2">
                     <View className="w-10 h-10 bg-purple-50 rounded-full items-center justify-center border border-purple-100">
-                      <Text className="text-xs font-bold text-purple-600">{getInitials(patient.name)}</Text>
+                      <Text className="text-xs font-bold text-purple-600">
+                        {getInitials(patient.name)}
+                      </Text>
                     </View>
-                    <View>
-                      <Text className="text-sm font-bold text-slate-800">{patient.name}</Text>
+                    <View className="flex-1">
+                      <Text className="text-sm font-bold text-slate-800" numberOfLines={1}>
+                        {patient.name}
+                      </Text>
                       <Text className="text-[11px] text-slate-400 mt-0.5">
-                        {patient.patient_code} • <Text className="font-medium text-slate-500">{patient.department || 'Unassigned'}</Text>
+                        {patient.patient_code} · {patient.department || 'Unassigned'}
                       </Text>
                     </View>
                   </View>
 
                   <View className="items-end">
-                    <View className={`px-2.5 py-0.5 rounded-full border ${patient.status === 'assigned' ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'}`}>
-                      <Text className={`text-[10px] font-bold ${patient.status === 'assigned' ? 'text-emerald-600' : 'text-amber-600'}`}>
-                        ✓ {patient.status === 'assigned' ? 'Assigned' : 'Waiting'}
+                    <View
+                      className={`px-2.5 py-0.5 rounded-full border ${
+                        patient.status === 'assigned'
+                          ? 'bg-emerald-50 border-emerald-200'
+                          : 'bg-amber-50 border-amber-200'
+                      }`}
+                    >
+                      <Text
+                        className={`text-[10px] font-bold ${
+                          patient.status === 'assigned' ? 'text-emerald-600' : 'text-amber-600'
+                        }`}
+                      >
+                        {patient.status === 'assigned' ? 'Assigned' : 'Waiting'}
                       </Text>
                     </View>
-                    <Text className="text-[10px] text-slate-400 mt-1">{getTimeAgo(patient.created_at)}</Text>
+                    <Text className="text-[10px] text-slate-400 mt-1">
+                      {getTimeAgo(patient.created_at)}
+                    </Text>
                   </View>
                 </View>
               ))}
@@ -266,28 +348,6 @@ const ReceptionistDashboard = () => {
           )}
         </View>
       </ScrollView>
-
-      {/* FIXED BOTTOM NAVIGATION BAR */}
-      <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0 }} className="bg-white border-t border-slate-100 py-3 flex-row justify-around items-center shadow-lg">
-        <TouchableOpacity className="items-center justify-center">
-          <View className="bg-teal-600 px-4 py-2 rounded-xl flex-row items-center gap-x-1.5">
-            <MaterialCommunityIcons name="view-dashboard" size={18} color="#FFFFFF" />
-            <Text className="text-white text-xs font-bold">Home</Text>
-          </View>
-        </TouchableOpacity>
-        
-        <TouchableOpacity onPress={() => router.push('/(receptionist)/register')} className="items-center justify-center p-2">
-          <MaterialCommunityIcons name="account-plus-outline" size={22} color="#94A3B8" />
-        </TouchableOpacity>
-
-        <TouchableOpacity onPress={() => router.push('/(receptionist)/patients')} className="items-center justify-center p-2">
-          <MaterialCommunityIcons name="account-group-outline" size={22} color="#94A3B8" />
-        </TouchableOpacity>
-
-        <TouchableOpacity onPress={() => router.push('/(receptionist)/settings')} className="items-center justify-center p-2">
-          <MaterialCommunityIcons name="cog-outline" size={22} color="#94A3B8" />
-        </TouchableOpacity>
-      </View>
     </SafeAreaView>
   );
 };
