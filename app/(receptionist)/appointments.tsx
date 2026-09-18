@@ -6,10 +6,12 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { API_URL } from '../../src/config/api';
 import { formatAppointmentTime } from '../../src/utils/doctorSlots';
@@ -43,6 +45,7 @@ const AppointmentsPage = () => {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [checkingInId, setCheckingInId] = useState<number | null>(null);
 
   const todayLabel = new Date().toLocaleDateString('en-US', {
     weekday: 'long',
@@ -70,6 +73,30 @@ const AppointmentsPage = () => {
     } finally {
       setLoading(false);
       setRefreshing(false);
+    }
+  };
+
+  const checkInAppointment = async (appointmentId: number) => {
+    try {
+      setCheckingInId(appointmentId);
+      const raw = await AsyncStorage.getItem('user_data');
+      const user = raw ? JSON.parse(raw) : null;
+      if (!user?.user_id) {
+        Alert.alert('Session Expired', 'Please log in again.');
+        return;
+      }
+      // Reuse existing API: scheduled → waiting (+ queue_token). Does not change scheduled_time.
+      await axios.patch(
+        `${API_URL}/appointments/${appointmentId}/status`,
+        { status: 'waiting' },
+        { headers: { 'X-User-Id': String(user.user_id) } }
+      );
+      await fetchAppointments();
+    } catch (error: any) {
+      const detail = error.response?.data?.detail || 'Could not check in this appointment.';
+      Alert.alert('Check In Failed', String(detail));
+    } finally {
+      setCheckingInId(null);
     }
   };
 
@@ -127,7 +154,10 @@ const AppointmentsPage = () => {
           </View>
         ) : (
           appointments.map((app) => {
-            const style = statusStyles[app.status || ''] || statusStyles.scheduled;
+            const statusKey = (app.status || '').toLowerCase();
+            const style = statusStyles[statusKey] || statusStyles.scheduled;
+            const isScheduled = statusKey === 'scheduled';
+            const isCheckingIn = checkingInId === app.appointment_id;
             return (
               <View
                 key={app.appointment_id}
@@ -154,6 +184,27 @@ const AppointmentsPage = () => {
                     <Text className={`text-[10px] font-bold ${style.text}`}>{style.label}</Text>
                   </View>
                 </View>
+
+                {isScheduled ? (
+                  <View className="mt-3 pt-3 border-t border-slate-50 flex-row items-center justify-between gap-x-3">
+                    <Text className="flex-1 text-[11px] text-slate-400">
+                      Patient not checked in yet. Booked slot stays {formatTime(app.scheduled_time)}.
+                    </Text>
+                    <TouchableOpacity
+                      disabled={isCheckingIn}
+                      onPress={() => checkInAppointment(app.appointment_id)}
+                      className="bg-amber-500 px-3 py-2.5 rounded-xl flex-row items-center gap-x-1.5"
+                      style={{ opacity: isCheckingIn ? 0.7 : 1 }}
+                    >
+                      {isCheckingIn ? (
+                        <ActivityIndicator color="#FFFFFF" size="small" />
+                      ) : (
+                        <MaterialCommunityIcons name="login" size={16} color="#FFFFFF" />
+                      )}
+                      <Text className="text-white text-xs font-bold">Check In</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : null}
 
                 {app.queue_token ? (
                   <View className="mt-3 pt-3 border-t border-slate-50 flex-row items-center justify-between gap-x-3">

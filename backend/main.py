@@ -93,7 +93,7 @@ def parse_soap_sections(soap_text: str) -> dict:
     return sections
 
 
-_CLINICAL_SUMMARY_MAX = 800
+_CLINICAL_SUMMARY_MAX_SENTENCES = 2
 
 
 def build_clinical_summary(
@@ -101,29 +101,29 @@ def build_clinical_summary(
     objective: Optional[str] = None,
     assessment: Optional[str] = None,
     plan: Optional[str] = None,
-    max_chars: int = _CLINICAL_SUMMARY_MAX,
 ) -> Optional[str]:
     """
     Deterministic short summary from approved S/O/A/P only.
-    Does not invent or infer clinical content. Returns None if all empty.
+    Each section keeps up to ~2 complete sentences from the approved text —
+    no character hard-clip, no mid-sentence cuts, no invention. Returns None if all empty.
     """
-    def _clip_section(text: Optional[str], budget: int) -> Optional[str]:
+    def _clip_section(text: Optional[str]) -> Optional[str]:
         if not text:
             return None
         cleaned = " ".join(str(text).split())
         if not cleaned:
             return None
-        if len(cleaned) <= budget:
-            return cleaned
-        return cleaned[: max(0, budget - 1)].rstrip() + "…"
 
-    # Soft budgets so Assessment/Plan are not crowded out by long Subjective
-    budgets = {
-        "Subjective": 220,
-        "Objective": 150,
-        "Assessment": 200,
-        "Plan": 230,
-    }
+        parts = [p.strip() for p in re.split(r"(?<=[.!?])\s+", cleaned) if p.strip()]
+        if not parts:
+            return cleaned
+
+        chosen = parts[:_CLINICAL_SUMMARY_MAX_SENTENCES]
+        out = " ".join(chosen)
+        if len(parts) > len(chosen):
+            return out.rstrip(" .") + "…"
+        return out
+
     pieces = []
     for label, raw in (
         ("Subjective", subjective),
@@ -131,30 +131,15 @@ def build_clinical_summary(
         ("Assessment", assessment),
         ("Plan", plan),
     ):
-        clipped = _clip_section(raw, budgets[label])
+        clipped = _clip_section(raw)
         if clipped:
             pieces.append(f"{label}: {clipped}")
 
     if not pieces:
         return None
 
-    summary = " | ".join(pieces)
-    if len(summary) <= max_chars:
-        return summary
-
-    # Hard cap while keeping as many leading sections as fit
-    out = []
-    used = 0
-    for piece in pieces:
-        sep = 3 if out else 0  # " | "
-        if used + sep + len(piece) > max_chars:
-            remain = max_chars - used - sep
-            if remain >= 40:
-                out.append(piece[: remain - 1].rstrip() + "…")
-            break
-        out.append(piece)
-        used += sep + len(piece)
-    return " | ".join(out) if out else summary[: max_chars - 1].rstrip() + "…"
+    # One section per line for readable Previous Visit display
+    return "\n".join(pieces)
 
 
 def _latest_clinical_summary_for_patient(db: Session, patient_id: int) -> Optional[str]:
@@ -1450,6 +1435,27 @@ def create_appointment(payload: schemas.AppointmentCreate, db: Session = Depends
     ).first()
     if not doctor:
         raise HTTPException(status_code=404, detail="Doctor not found")
+
+    # Current OPD only: at most one active visit (waiting|in_progress) per patient, clinic-wide.
+    # Scheduled/future bookings are not restricted by this rule.
+    if status == "waiting":
+        active_opd = (
+            db.query(models.Appointment)
+            .filter(
+                models.Appointment.patient_id == payload.patient_id,
+                models.Appointment.status.in_(("waiting", "in_progress")),
+            )
+            .first()
+        )
+        if active_opd:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Patient already has an active OPD visit. "
+                    "Complete or cancel the current visit before booking another "
+                    "Current OPD appointment."
+                ),
+            )
 
     if payload.scheduled_time is None:
         raise HTTPException(

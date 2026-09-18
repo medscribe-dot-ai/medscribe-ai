@@ -274,17 +274,34 @@ const BookAppointment = () => {
     return { schedule, scheduledOnDay, onDutyNow, slots, openCount, rangeLabel, selectable };
   };
 
+  /** First open slot today — used only to satisfy POST scheduled_time for Current OPD. */
+  const firstAvailableSlotTime = (doctorId: number): string | null => {
+    const slot = slotsForDoctor(doctorId).find((s) => s.available);
+    return slot?.time ?? null;
+  };
+
   const validate = () => {
     const next: { [key: string]: string } = {};
-    if (!selectedDoctorId) next.doctor = 'Select an available doctor and time slot.';
-    if (!selectedSlot) next.time = 'Select an available time slot.';
-    if (selectedDoctorId && selectedSlot) {
-      const slots = slotsForDoctor(selectedDoctorId);
-      if (!slots.some((s) => s.time === selectedSlot && s.available)) {
-        next.time = 'Selected slot is not available.';
+    if (!selectedDoctorId) {
+      next.doctor =
+        visitType === 'waiting'
+          ? 'Select an available doctor.'
+          : 'Select an available doctor and time slot.';
+    } else if (!doctorMeta(selectedDoctorId).selectable) {
+      next.doctor = 'This doctor is not available for booking right now.';
+    } else if (visitType === 'waiting') {
+      // Auto-slot must exist so backend scheduled_time contract stays valid.
+      if (!firstAvailableSlotTime(selectedDoctorId)) {
+        next.time = 'No open slot available for this doctor today.';
       }
-      if (!doctorMeta(selectedDoctorId).selectable) {
-        next.doctor = 'This doctor is not available for booking right now.';
+    } else {
+      if (!selectedSlot) {
+        next.time = 'Select an available time slot.';
+      } else {
+        const slots = slotsForDoctor(selectedDoctorId);
+        if (!slots.some((s) => s.time === selectedSlot && s.available)) {
+          next.time = 'Selected slot is not available.';
+        }
       }
     }
     setErrors(next);
@@ -293,12 +310,28 @@ const BookAppointment = () => {
 
   const handleBook = async () => {
     if (!validate()) {
-      Alert.alert('Missing Information', 'Please select an available doctor and time slot.');
+      Alert.alert(
+        'Missing Information',
+        visitType === 'waiting'
+          ? 'Please select an available doctor.'
+          : 'Please select an available doctor and time slot.'
+      );
+      return;
+    }
+
+    // Current OPD: auto-pick next open slot (backend still requires scheduled_time).
+    // Future: use the receptionist-selected slot.
+    const slotForPayload =
+      visitType === 'waiting'
+        ? firstAvailableSlotTime(selectedDoctorId!)
+        : selectedSlot;
+    if (!slotForPayload) {
+      Alert.alert('Invalid Date/Time', 'Please choose a valid slot.');
       return;
     }
 
     // Treat selected date+slot as Asia/Karachi clinic wall time (not device TZ).
-    const scheduledTimeIso = clinicWallDateTimeToUtcIso(effectiveDate, selectedSlot!);
+    const scheduledTimeIso = clinicWallDateTimeToUtcIso(effectiveDate, slotForPayload);
     if (!scheduledTimeIso) {
       Alert.alert('Invalid Date/Time', 'Please choose a valid slot.');
       return;
@@ -525,10 +558,17 @@ const BookAppointment = () => {
           </Text>
         ) : null}
 
-        {/* Doctors + expandable slots */}
+        {/* Doctors — Current OPD: doctor only; Future: expandable slots */}
         <Text className="text-xs font-bold text-slate-700 mb-2">
-          Doctors & slots * ({APPOINTMENT_SLOT_MINUTES} min)
+          {visitType === 'waiting'
+            ? 'Doctor *'
+            : `Doctors & slots * (${APPOINTMENT_SLOT_MINUTES} min)`}
         </Text>
+        {visitType === 'waiting' ? (
+          <Text className="text-[11px] text-slate-400 -mt-1 mb-3">
+            Patient is present now — joins the doctor queue immediately.
+          </Text>
+        ) : null}
 
         {loadingList ? (
           <ActivityIndicator color="#0D9488" className="mb-5" />
@@ -542,9 +582,11 @@ const BookAppointment = () => {
           <View className="mb-5 gap-y-3">
             {filteredDoctors.map((d) => {
               const meta = doctorMeta(d.doctor_id);
-              const expanded = expandedDoctorId === d.doctor_id;
-              const selected =
-                selectedDoctorId === d.doctor_id && Boolean(selectedSlot);
+              const isCurrentOpd = visitType === 'waiting';
+              const expanded = !isCurrentOpd && expandedDoctorId === d.doctor_id;
+              const selected = isCurrentOpd
+                ? selectedDoctorId === d.doctor_id
+                : selectedDoctorId === d.doctor_id && Boolean(selectedSlot);
               const unavailable =
                 !meta.scheduledOnDay ||
                 (visitType === 'waiting' && !meta.onDutyNow) ||
@@ -566,7 +608,7 @@ const BookAppointment = () => {
                 statusColor = 'text-slate-500';
                 statusBg = 'bg-slate-100 border-slate-200';
               } else if (visitType === 'waiting' && meta.onDutyNow) {
-                statusLabel = 'Available now';
+                statusLabel = selected ? 'Joins queue now' : 'Available now';
               }
 
               return (
@@ -582,11 +624,18 @@ const BookAppointment = () => {
                   style={unavailable ? { opacity: 0.72 } : undefined}
                 >
                   <TouchableOpacity
-                    onPress={() =>
+                    onPress={() => {
+                      if (isCurrentOpd) {
+                        if (unavailable || !meta.selectable) return;
+                        setSelectedDoctorId(d.doctor_id);
+                        setSelectedSlot(null);
+                        setErrors((p) => ({ ...p, doctor: '', time: '' }));
+                        return;
+                      }
                       setExpandedDoctorId((prev) =>
                         prev === d.doctor_id ? null : d.doctor_id
-                      )
-                    }
+                      );
+                    }}
                     className="p-4 flex-row items-center justify-between"
                     activeOpacity={0.85}
                   >
@@ -605,15 +654,29 @@ const BookAppointment = () => {
                       <View className={`self-start mt-2 px-2 py-0.5 rounded-full border ${statusBg}`}>
                         <Text className={`text-[10px] font-bold ${statusColor}`}>
                           {statusLabel}
-                          {meta.scheduledOnDay ? ` · ${meta.openCount} open` : ''}
+                          {!isCurrentOpd && meta.scheduledOnDay
+                            ? ` · ${meta.openCount} open`
+                            : ''}
                         </Text>
                       </View>
                     </View>
-                    <MaterialCommunityIcons
-                      name={expanded ? 'chevron-up' : 'chevron-down'}
-                      size={22}
-                      color="#64748B"
-                    />
+                    {isCurrentOpd ? (
+                      selected ? (
+                        <MaterialCommunityIcons name="check-circle" size={22} color="#0D9488" />
+                      ) : (
+                        <MaterialCommunityIcons
+                          name="chevron-right"
+                          size={22}
+                          color={unavailable ? '#94A3B8' : '#64748B'}
+                        />
+                      )
+                    ) : (
+                      <MaterialCommunityIcons
+                        name={expanded ? 'chevron-up' : 'chevron-down'}
+                        size={22}
+                        color="#64748B"
+                      />
+                    )}
                   </TouchableOpacity>
 
                   {expanded ? (
@@ -686,10 +749,20 @@ const BookAppointment = () => {
 
         <TouchableOpacity
           onPress={handleBook}
-          disabled={submitting || loadingList || !selectedDoctorId || !selectedSlot}
+          disabled={
+            submitting ||
+            loadingList ||
+            !selectedDoctorId ||
+            (visitType === 'scheduled' && !selectedSlot)
+          }
           className="w-full bg-teal-600 p-4 rounded-2xl flex-row justify-center items-center gap-x-2 active:opacity-90"
           style={{
-            opacity: submitting || !selectedDoctorId || !selectedSlot ? 0.6 : 1,
+            opacity:
+              submitting ||
+              !selectedDoctorId ||
+              (visitType === 'scheduled' && !selectedSlot)
+                ? 0.6
+                : 1,
           }}
         >
           {submitting ? (
@@ -800,7 +873,9 @@ const BookAppointment = () => {
               <Text className="text-xs text-slate-500">
                 When:{' '}
                 <Text className="font-bold text-slate-800">
-                  {formatWhen(booked?.scheduled_time || null)}
+                  {(booked?.status || '').toLowerCase() === 'waiting'
+                    ? 'Joins queue now'
+                    : formatWhen(booked?.scheduled_time || null)}
                 </Text>
               </Text>
               <Text className="text-xs text-slate-500">
