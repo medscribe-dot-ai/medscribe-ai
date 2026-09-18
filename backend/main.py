@@ -3,12 +3,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from typing import List, Optional, Tuple
-import httpx, os, datetime, re, json
+import os, datetime, re, json
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from database import engine, get_db, Base
 import models, schemas
 from auth import get_password_hash, verify_password
 from sqlalchemy import func
+from ai_pipeline import run_pipeline
 
 
 # Initialize Database
@@ -615,34 +616,9 @@ def delete_doctor(doctor_id: int, db: Session = Depends(get_db)):
     }
 
 
-# ====================== HELPER: Get Latest Colab URL ======================
-
-def get_colab_url():
-    """Fetch latest ngrok URL from Supabase app_config, then COLAB_URL env."""
-    try:
-        from supabase import create_client
-        SUPABASE_URL = os.environ.get("SUPABASE_URL")
-        SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY")
-        if SUPABASE_URL and SUPABASE_KEY:
-            supa = create_client(SUPABASE_URL, SUPABASE_KEY)
-            response = supa.table("app_config").select("value").eq("key", "colab_url").execute()
-            if response.data and len(response.data) > 0:
-                value = (response.data[0].get("value") or "").rstrip("/")
-                if value:
-                    return value
-    except Exception as e:
-        print(f"Warning: Could not fetch colab_url from DB: {e}")
-
-    env_url = (os.environ.get("COLAB_URL") or "").rstrip("/")
-    if env_url:
-        return env_url
-
-    return "https://donation-undertow-exalted.ngrok-free.dev"
-
-
 # ====================== AUDIO PROCESSING ======================
 
-# Compact prior-visit budget for Colab /process payload (keep small for MedGemma tokens)
+# Compact prior-visit budget for prior_clinical_context (keep small for MedGemma tokens)
 _PRIOR_CTX_ASSESSMENT_MAX = 400
 _PRIOR_CTX_PLAN_MAX = 400
 _PRIOR_CTX_SO_MAX = 200
@@ -783,12 +759,11 @@ def _build_prior_clinical_context(
 
 
 async def call_colab_in_background(consultation_id: int, audio_url: str, bucket_path: str):
+    # Own session: request-scoped get_db() is closed before BackgroundTasks run.
     from database import SessionLocal
     db = SessionLocal()
 
-    COLAB_URL = get_colab_url()
     print(f"🔥 Task started: {consultation_id}")
-    print(f"🔥 Colab URL: {COLAB_URL}")
     print(f"🔥 Audio URL: {audio_url}")
 
     consultation = None
@@ -812,32 +787,22 @@ async def call_colab_in_background(consultation_id: int, audio_url: str, bucket_
             print(f"⚠️ prior_clinical_context skipped: {hist_err}")
             prior_clinical_context = None
 
-        colab_payload = {
-            "audio_url": audio_url,
-            "record_id": str(consultation_id),
-            "bucket_path": bucket_path,
-            "prior_clinical_context": prior_clinical_context,
-        }
+        # Local AI pipeline writes progress + final result to consultations itself.
+        result = await run_pipeline(
+            consultation_id=consultation_id,
+            audio_url=audio_url,
+            bucket_path=bucket_path,
+            prior_clinical_context=prior_clinical_context,
+            db=db,
+        )
 
-        async with httpx.AsyncClient(timeout=900.0) as client:
-            response = await client.post(
-                f"{COLAB_URL}/process",
-                json=colab_payload,
-                headers={"ngrok-skip-browser-warning": "true"},
-                timeout=900.0
-            )
-            response.raise_for_status()
-
-    except httpx.TimeoutException:
-        if consultation:
-            consultation.status        = "error"
-            consultation.error_message = "Processing is taking longer than expected. Please try again shortly."
-            consultation.updated_at    = datetime.datetime.utcnow()
-            db.commit()
+        # Do not overwrite a successful (or already-persisted error) pipeline write.
+        if isinstance(result, dict) and result.get("status") == "error":
+            print(f"Pipeline returned error: {result.get('message')}")
 
     except Exception as e:
         error_msg = str(e)
-        print(f"Colab call failed: {error_msg}")
+        print(f"Pipeline call failed: {error_msg}")
         if consultation:
             consultation.status        = "error"
             consultation.error_message = error_msg
