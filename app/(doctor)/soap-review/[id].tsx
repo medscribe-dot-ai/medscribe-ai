@@ -1055,6 +1055,23 @@ export default function SoapReviewScreen() {
     }
   };
 
+  const confirmApprove = () => {
+    if (!consultationId || Number.isNaN(consultationId) || isApproving || approved) return;
+    Alert.alert(
+      'Approve and Finalize SOAP?',
+      'Are you sure you want to approve and finalize this clinical documentation?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Approve & Finalize',
+          onPress: () => {
+            void handleApprove();
+          },
+        },
+      ]
+    );
+  };
+
   const handleCompleteConsultation = () => {
     if (fromQueue) {
       router.replace('/(doctor)/queue/patient_queue');
@@ -1300,7 +1317,7 @@ export default function SoapReviewScreen() {
 
           {!approved ? (
             <TouchableOpacity
-              onPress={handleApprove}
+              onPress={confirmApprove}
               disabled={isApproving}
               style={{
                 backgroundColor: '#0d9488',

@@ -46,16 +46,13 @@ export default function DoctorLayout() {
           ),
         }}
       />
-      
-      {/* 1. NAYA TAB: Record (Isse error khatam ho jayega) */}
+
+      {/* Consultation/record is opened from Start/Continue Consultation — not a tab. */}
       <Tabs.Screen
         name="record/index"
         options={{
-          title: 'Record',
-          tabBarLabel: 'Voice Record',
-          tabBarIcon: ({ color }) => (
-            <MaterialCommunityIcons name="microphone" size={26} color={color} />
-          ),
+          href: null,
+          title: 'Consultation',
         }}
       />
 
@@ -83,6 +80,14 @@ export default function DoctorLayout() {
         options={{
           href: null,
           title: 'SOAP Review',
+        }}
+      />
+
+      <Tabs.Screen
+        name="history/[patient_id]"
+        options={{
+          href: null,
+          title: 'Visit History',
         }}
       />
 

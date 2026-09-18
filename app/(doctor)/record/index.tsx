@@ -398,10 +398,12 @@ function PreviousVisitPanel({
   loading,
   error,
   visit,
+  onViewHistory,
 }: {
   loading: boolean;
   error: string | null;
   visit: PatientHistoryVisit | null;
+  onViewHistory?: () => void;
 }) {
   const [showFullSoap, setShowFullSoap] = useState(false);
 
@@ -544,6 +546,27 @@ function PreviousVisitPanel({
               ) : null}
         </>
       )}
+
+      {onViewHistory ? (
+        <TouchableOpacity
+          onPress={onViewHistory}
+          style={{
+            marginTop: 14,
+            paddingTop: 12,
+            borderTopWidth: 1,
+            borderTopColor: '#f1f5f9',
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+          accessibilityRole="button"
+        >
+          <MaterialCommunityIcons name="history" size={18} color="#0d9488" />
+          <Text style={{ color: '#0d9488', fontWeight: '800', fontSize: 13, marginLeft: 6 }}>
+            View Visit History
+          </Text>
+        </TouchableOpacity>
+      ) : null}
     </View>
   );
 }
@@ -926,6 +949,24 @@ export default function VoiceRecordingScreen() {
     }
   };
 
+  const confirmEndConsultation = () => {
+    if (!isRecording || stoppingRecording || isActive) return;
+    Alert.alert(
+      'End Consultation?',
+      'This will stop the recording and upload it for processing. Continue?',
+      [
+        { text: 'Continue Recording', style: 'cancel' },
+        {
+          text: 'End & Upload',
+          style: 'destructive',
+          onPress: () => {
+            void handleStopRecording();
+          },
+        },
+      ]
+    );
+  };
+
   const resetState = (clearFile = true) => {
     if (pollingRef.current) {
       clearInterval(pollingRef.current);
@@ -953,27 +994,25 @@ export default function VoiceRecordingScreen() {
       contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 24, paddingBottom: 32 }}
       showsVerticalScrollIndicator={false}
     >
-      <View style={{ marginBottom: 28 }}>
+      {/* Patient-first header */}
+      <View style={{ marginBottom: 20 }}>
         <TouchableOpacity
           onPress={() => router.back()}
           style={{
             backgroundColor: '#fff', width: 40, height: 40, borderRadius: 20,
-            alignItems: 'center', justifyContent: 'center', marginBottom: 16,
+            alignItems: 'center', justifyContent: 'center', marginBottom: 14,
             borderWidth: 1, borderColor: '#e2e8f0',
           }}
         >
           <MaterialCommunityIcons name="chevron-left" size={28} color="#1e293b" />
         </TouchableOpacity>
-        <Text style={{ fontSize: 28, fontWeight: '800', color: '#0f172a', letterSpacing: -0.5 }}>
-          Voice Recording
+        <Text style={{ fontSize: 26, fontWeight: '800', color: '#0f172a', letterSpacing: -0.5 }}>
+          Consultation
         </Text>
-        <Text style={{ color: '#64748b', fontSize: 14, fontWeight: '500', marginTop: 4 }}>
-          Capture or upload clinical consultation
-        </Text>
-        {appointmentId ? (
+        {hasVisitContext ? (
           <View
             style={{
-              marginTop: 12,
+              marginTop: 10,
               backgroundColor: '#f0fdfa',
               borderWidth: 1,
               borderColor: '#99f6e4',
@@ -982,37 +1021,38 @@ export default function VoiceRecordingScreen() {
               paddingVertical: 10,
             }}
           >
-            <Text style={{ color: '#0d9488', fontSize: 12, fontWeight: '700' }}>
-              Visit {visitToken || `APPT-${appointmentId}`}
-              {visitPatientName ? ` · ${visitPatientName}` : ''}
+            <Text style={{ color: '#0f172a', fontSize: 16, fontWeight: '800' }} numberOfLines={1}>
+              {visitPatientName || 'Patient'}
             </Text>
-            <Text style={{ color: '#64748b', fontSize: 11, marginTop: 2 }}>
-              Linked appointment_id: {appointmentId}
+            <Text style={{ color: '#64748b', fontSize: 12, fontWeight: '600', marginTop: 3 }}>
+              {[
+                visitPatientCode ? `Code ${visitPatientCode}` : null,
+                visitToken ? `Token ${visitToken}` : null,
+              ]
+                .filter(Boolean)
+                .join(' · ') || 'Linked visit'}
             </Text>
           </View>
-        ) : null}
+        ) : (
+          <Text style={{ color: '#64748b', fontSize: 14, fontWeight: '500', marginTop: 4 }}>
+            Start a visit from the queue to record a consultation
+          </Text>
+        )}
       </View>
 
-      {patientId ? (
-        <PreviousVisitPanel
-          loading={historyLoading}
-          error={historyError}
-          visit={previousCompletedVisit}
-        />
-      ) : null}
-
+      {/* Primary: live recording */}
       <View style={{
         backgroundColor: '#ffffff', padding: 20, borderRadius: 24,
         borderWidth: 1, borderColor: '#e2e8f0', marginBottom: 16,
       }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 20 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
           <View style={{ backgroundColor: '#f0fdfa', padding: 12, borderRadius: 16, marginRight: 14, borderWidth: 1, borderColor: '#99f6e4' }}>
             <MaterialCommunityIcons name="microphone" size={26} color="#0d9488" />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={{ fontSize: 18, fontWeight: '800', color: '#0f172a' }}>New Consultation</Text>
+            <Text style={{ fontSize: 18, fontWeight: '800', color: '#0f172a' }}>Record consultation</Text>
             <Text style={{ color: '#64748b', fontSize: 12, marginTop: 1 }}>
-              Record live or upload audio to generate a SOAP note
+              Record the visit to generate a SOAP note
             </Text>
           </View>
         </View>
@@ -1025,19 +1065,18 @@ export default function VoiceRecordingScreen() {
               borderColor: '#fed7aa',
               borderRadius: 14,
               padding: 12,
-              marginBottom: 16,
+              marginBottom: 12,
             }}
           >
             <Text style={{ color: '#9a3412', fontSize: 13, fontWeight: '600' }}>
-              Start a visit from the patient queue to enable live microphone recording. File upload
-              remains available as a fallback.
+              Start a visit from the patient queue to enable live microphone recording. You can still
+              upload an audio file below as a fallback.
             </Text>
           </View>
         ) : null}
 
-        {/* Live microphone — visit-linked only */}
         {hasVisitContext ? (
-          <View style={{ marginBottom: 16 }}>
+          <View style={{ marginBottom: 8 }}>
             {isRecording || stoppingRecording ? (
               <View
                 style={{
@@ -1096,7 +1135,7 @@ export default function VoiceRecordingScreen() {
               </TouchableOpacity>
             ) : (
               <TouchableOpacity
-                onPress={handleStopRecording}
+                onPress={confirmEndConsultation}
                 disabled={stoppingRecording || isActive}
                 style={{
                   backgroundColor: '#dc2626',
@@ -1123,41 +1162,91 @@ export default function VoiceRecordingScreen() {
           </View>
         ) : null}
 
-        <TouchableOpacity
-          onPress={handleUploadSelection}
-          disabled={controlsLocked}
+        {/* Secondary: file upload fallback */}
+        <View
           style={{
-            borderStyle: 'dashed', borderColor: controlsLocked ? '#cbd5e1' : '#0d9488',
-            borderWidth: 2, padding: 36, borderRadius: 20,
-            alignItems: 'center', backgroundColor: '#f8fafc', marginBottom: 16,
-            opacity: controlsLocked ? 0.5 : 1,
+            marginTop: 12,
+            paddingTop: 14,
+            borderTopWidth: 1,
+            borderTopColor: '#f1f5f9',
           }}
         >
-          <MaterialCommunityIcons name="cloud-upload" size={44} color={controlsLocked ? '#94a3b8' : '#0d9488'} />
-          <Text style={{ color: controlsLocked ? '#94a3b8' : '#0d9488', fontWeight: '700', fontSize: 16, marginTop: 12 }}>
-            {selectedFile ? 'File Selected' : 'Choose Audio from Device'}
+          <Text style={{ color: '#94a3b8', fontSize: 11, fontWeight: '700', marginBottom: 8, textTransform: 'uppercase' }}>
+            Or upload an audio file
           </Text>
-          <Text style={{ color: '#94a3b8', fontSize: 12, marginTop: 4 }}>MP3, WAV, M4A supported · fallback</Text>
-        </TouchableOpacity>
-
-        {selectedFile && (
-          <View style={{ padding: 14, backgroundColor: '#f0fdfa', borderRadius: 16, borderWidth: 1, borderColor: '#99f6e4', flexDirection: 'row', alignItems: 'center' }}>
-            <MaterialCommunityIcons name="file-music" size={28} color="#0d9488" />
-            <View style={{ marginLeft: 12, flex: 1 }}>
-              <Text style={{ color: '#0f172a', fontWeight: '600', fontSize: 14 }} numberOfLines={1}>{selectedFile.name}</Text>
-              <Text style={{ color: '#64748b', fontSize: 12, marginTop: 2 }}>Ready to process</Text>
+          <TouchableOpacity
+            onPress={handleUploadSelection}
+            disabled={controlsLocked}
+            style={{
+              borderStyle: 'dashed',
+              borderColor: controlsLocked ? '#e2e8f0' : '#cbd5e1',
+              borderWidth: 1.5,
+              paddingVertical: 16,
+              paddingHorizontal: 14,
+              borderRadius: 16,
+              flexDirection: 'row',
+              alignItems: 'center',
+              backgroundColor: '#f8fafc',
+              opacity: controlsLocked ? 0.5 : 1,
+            }}
+          >
+            <MaterialCommunityIcons
+              name="file-upload-outline"
+              size={22}
+              color={controlsLocked ? '#94a3b8' : '#64748b'}
+            />
+            <View style={{ marginLeft: 10, flex: 1 }}>
+              <Text
+                style={{
+                  color: controlsLocked ? '#94a3b8' : '#475569',
+                  fontWeight: '700',
+                  fontSize: 14,
+                }}
+                numberOfLines={1}
+              >
+                {selectedFile ? selectedFile.name : 'Choose audio from device'}
+              </Text>
+              <Text style={{ color: '#94a3b8', fontSize: 11, marginTop: 2 }}>
+                MP3, WAV, M4A · fallback option
+              </Text>
             </View>
-            {!isActive && !reviewReady && !isRecording && !stoppingRecording && (
-              <TouchableOpacity onPress={() => {
-                setSelectedFile(null);
-                audioBytesRef.current = null;
-              }}>
-                <MaterialCommunityIcons name="close-circle" size={24} color="#ef4444" />
+            {selectedFile && !isActive && !reviewReady && !isRecording && !stoppingRecording ? (
+              <TouchableOpacity
+                onPress={() => {
+                  setSelectedFile(null);
+                  audioBytesRef.current = null;
+                }}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <MaterialCommunityIcons name="close-circle" size={22} color="#ef4444" />
               </TouchableOpacity>
-            )}
-          </View>
-        )}
+            ) : null}
+          </TouchableOpacity>
+        </View>
       </View>
+
+      {/* Previous visit — after primary recording */}
+      {patientId ? (
+        <PreviousVisitPanel
+          loading={historyLoading}
+          error={historyError}
+          visit={previousCompletedVisit}
+          onViewHistory={() => {
+            router.push({
+              pathname: '/(doctor)/history/[patient_id]',
+              params: {
+                patient_id: String(patientId),
+                exclude_appointment_id:
+                  appointmentId != null && !Number.isNaN(appointmentId)
+                    ? String(appointmentId)
+                    : '',
+                patient_name: visitPatientName || '',
+                patient_code: visitPatientCode || '',
+              },
+            });
+          }}
+        />
+      ) : null}
 
       {uploadStatus !== 'idle' && (
         <View style={{
@@ -1175,11 +1264,6 @@ export default function VoiceRecordingScreen() {
           <Text style={{ color: '#334155', fontSize: 14, fontWeight: '700', textAlign: 'center' }}>
             {STATUS_MESSAGES[uploadStatus]}
           </Text>
-          {consultationId != null ? (
-            <Text style={{ color: '#64748b', fontSize: 11, marginTop: 4 }}>
-              Consultation #{consultationId}
-            </Text>
-          ) : null}
         </View>
       )}
 
@@ -1215,7 +1299,7 @@ export default function VoiceRecordingScreen() {
         >
           <MaterialCommunityIcons name="plus-circle-outline" size={24} color="white" />
           <Text style={{ color: 'white', fontWeight: '800', fontSize: 16, marginLeft: 10 }}>
-            New Consultation
+            Try Again
           </Text>
         </TouchableOpacity>
       )}
