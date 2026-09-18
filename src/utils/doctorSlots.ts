@@ -11,6 +11,30 @@ export const APPOINTMENT_SLOT_MINUTES = 30;
 /** Matches backend CLINIC_TZ default (Asia/Karachi). */
 export const CLINIC_TIME_ZONE = 'Asia/Karachi';
 
+/**
+ * Asia/Karachi has no DST. Fixed offset for encoding clinic wall-clock → UTC ISO
+ * without depending on the device timezone.
+ */
+const CLINIC_FIXED_UTC_OFFSET = '+05:00';
+
+/**
+ * Convert a clinic wall date + HH:MM (Asia/Karachi) to a UTC ISO string for the API.
+ * Example: 2026-09-25 + "16:30" → "2026-09-25T11:30:00.000Z"
+ */
+export function clinicWallDateTimeToUtcIso(
+  dateStr: string,
+  timeHHMM: string
+): string | null {
+  const date = dateStr.trim();
+  const time = timeHHMM.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  if (!/^\d{2}:\d{2}$/.test(time)) return null;
+  // Explicit offset so parsing is device-TZ independent (ISO-8601).
+  const d = new Date(`${date}T${time}:00${CLINIC_FIXED_UTC_OFFSET}`);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString();
+}
+
 const DAY_KEYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
 
 export type DoctorSchedule = Record<string, string>;

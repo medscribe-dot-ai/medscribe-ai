@@ -27,6 +27,7 @@ import {
   isDoctorWorkingAt,
   markBookedSlots,
   scheduledTimeToSlotHHMM,
+  clinicWallDateTimeToUtcIso,
   weekdayKeyFromDateStr,
 } from '../../src/utils/doctorSlots';
 import { printQueueToken } from '../../src/utils/printQueueToken';
@@ -296,8 +297,9 @@ const BookAppointment = () => {
       return;
     }
 
-    const scheduled_time = new Date(`${effectiveDate}T${selectedSlot}:00`);
-    if (Number.isNaN(scheduled_time.getTime())) {
+    // Treat selected date+slot as Asia/Karachi clinic wall time (not device TZ).
+    const scheduledTimeIso = clinicWallDateTimeToUtcIso(effectiveDate, selectedSlot!);
+    if (!scheduledTimeIso) {
       Alert.alert('Invalid Date/Time', 'Please choose a valid slot.');
       return;
     }
@@ -307,7 +309,7 @@ const BookAppointment = () => {
       const res = await axios.post(`${API_URL}/appointments`, {
         patient_id: patientId,
         doctor_id: selectedDoctorId,
-        scheduled_time: scheduled_time.toISOString(),
+        scheduled_time: scheduledTimeIso,
         status: visitType,
       });
 
