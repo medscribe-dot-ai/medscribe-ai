@@ -1698,7 +1698,22 @@ def register_patient(patient_in: schemas.PatientRegister, db: Session = Depends(
 
 
 @app.get("/patients", response_model=List[schemas.PatientListResponse])
-def search_patients(search: Optional[str] = "", db: Session = Depends(get_db)):
+def search_patients(
+    search: Optional[str] = "",
+    db: Session = Depends(get_db),
+    x_user_id: Optional[int] = Header(None, alias="X-User-Id"),
+):
+    """
+    Patient list for receptionist/admin/doctor tooling.
+    latest_clinical_summary is clinical content: only returned for doctor/admin
+    when X-User-Id identifies that role. Receptionists always get null.
+    """
+    include_clinical_summary = False
+    if x_user_id is not None:
+        actor = db.query(models.User).filter(models.User.user_id == x_user_id).first()
+        if actor and (actor.role or "").lower().strip() in ("doctor", "admin"):
+            include_clinical_summary = True
+
     query = db.query(models.Patient)
 
     if search:
@@ -1726,8 +1741,10 @@ def search_patients(search: Optional[str] = "", db: Session = Depends(get_db)):
             "status": p.status,
             "created_at": p.created_at,
             "visit_count": visit_count,
-            "latest_clinical_summary": _latest_clinical_summary_for_patient(
-                db, p.patient_id
+            "latest_clinical_summary": (
+                _latest_clinical_summary_for_patient(db, p.patient_id)
+                if include_clinical_summary
+                else None
             ),
         })
 

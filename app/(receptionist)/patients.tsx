@@ -10,6 +10,7 @@ import {
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { API_URL } from '../../src/config/api';
 import { ReceptionistMenuButton } from '../../src/components/receptionist/ReceptionistNavMenu';
@@ -24,7 +25,6 @@ interface Patient {
   status: string | null;
   created_at: string | null;
   visit_count: number;
-  latest_clinical_summary?: string | null;
 }
 
 const PatientsPage = () => {
@@ -53,8 +53,19 @@ const PatientsPage = () => {
   const fetchPatients = async (search: string = '') => {
     try {
       setLoading(true);
+      const headers: Record<string, string> = {};
+      try {
+        const raw = await AsyncStorage.getItem('user_data');
+        const user = raw ? JSON.parse(raw) : null;
+        if (user?.user_id != null) {
+          headers['X-User-Id'] = String(user.user_id);
+        }
+      } catch {
+        // Backend still omits clinical summary unless role is doctor/admin
+      }
       const response = await axios.get(`${API_URL}/patients`, {
         params: { search },
+        headers,
       });
       setPatients(response.data);
     } catch (error: any) {
@@ -142,24 +153,6 @@ const PatientsPage = () => {
                   <Text className="text-xs text-slate-400 mt-0.5">
                     📞 {p.phone || 'N/A'} • 📄 {p.visit_count} visit{p.visit_count !== 1 ? 's' : ''}
                   </Text>
-                  {p.latest_clinical_summary?.trim() ? (
-                    <View className="mt-2 bg-teal-50 border border-teal-100 rounded-xl px-3 py-2">
-                      <Text className="text-[10px] font-bold uppercase tracking-wide text-teal-700">
-                        Previous Visit Summary
-                      </Text>
-                      <Text className="text-xs text-slate-600 mt-1 leading-4" numberOfLines={4}>
-                        {p.latest_clinical_summary.trim()}
-                      </Text>
-                    </View>
-                  ) : p.visit_count > 0 ? (
-                    <Text className="text-[11px] text-slate-400 mt-2">
-                      No clinical summary available for the last completed visit.
-                    </Text>
-                  ) : (
-                    <Text className="text-[11px] text-slate-400 mt-2">
-                      No previous completed consultation.
-                    </Text>
-                  )}
                   <Text className="text-[11px] font-semibold text-teal-600 mt-2">
                     Book New Appointment →
                   </Text>
