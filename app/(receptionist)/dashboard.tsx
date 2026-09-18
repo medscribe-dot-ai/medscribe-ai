@@ -311,7 +311,7 @@ const ReceptionistDashboard = () => {
                         {patient.name}
                       </Text>
                       <Text className="text-[11px] text-slate-400 mt-0.5">
-                        {patient.patient_code} · {patient.department || 'Unassigned'}
+                        {patient.patient_code} · Dept: {patient.department?.trim() || 'Not specified'}
                       </Text>
                     </View>
                   </View>

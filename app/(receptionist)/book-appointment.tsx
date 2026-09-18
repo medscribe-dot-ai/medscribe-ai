@@ -1,7 +1,7 @@
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import axios from 'axios';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -20,6 +20,7 @@ import {
   AppointmentSlot,
   DoctorSchedule,
   buildSlotsForDate,
+  formatAppointmentDateTime,
   formatMinutesToDisplay,
   getScheduleRangeLabel,
   isDoctorScheduledOnDate,
@@ -52,7 +53,14 @@ interface BookedAppointment {
   scheduled_time: string | null;
   status: string | null;
   queue_token: string | null;
+  department: string | null;
+  doctor_specialization: string | null;
 }
+
+/** Sentinel for "show all doctors" — not a real specialization value. */
+const DEPT_ALL = '__ALL__';
+
+const normalizeDept = (value: string | null | undefined) => (value || '').trim();
 
 const pad = (n: number) => String(n).padStart(2, '0');
 
@@ -119,6 +127,8 @@ const BookAppointment = () => {
   const [expandedDoctorId, setExpandedDoctorId] = useState<number | null>(null);
   const [selectedDoctorId, setSelectedDoctorId] = useState<number | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
+  const [chiefComplaint, setChiefComplaint] = useState('');
+  const [selectedDepartment, setSelectedDepartment] = useState<string>(DEPT_ALL);
 
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
@@ -127,6 +137,30 @@ const BookAppointment = () => {
   const [nowTick, setNowTick] = useState(() => new Date());
 
   const effectiveDate = visitType === 'waiting' ? todayStr() : dateStr;
+
+  /** Departments derived from loaded doctors' specializations (existing API data). */
+  const departmentOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const d of doctors) {
+      const spec = normalizeDept(d.specialization);
+      if (spec) set.add(spec);
+    }
+    const list = Array.from(set);
+    list.sort((a, b) => {
+      const aGeneral = /general/i.test(a) ? 0 : 1;
+      const bGeneral = /general/i.test(b) ? 0 : 1;
+      if (aGeneral !== bGeneral) return aGeneral - bGeneral;
+      return a.localeCompare(b);
+    });
+    return list;
+  }, [doctors]);
+
+  const filteredDoctors = useMemo(() => {
+    if (selectedDepartment === DEPT_ALL) return doctors;
+    return doctors.filter(
+      (d) => normalizeDept(d.specialization).toLowerCase() === selectedDepartment.toLowerCase()
+    );
+  }, [doctors, selectedDepartment]);
 
   const fetchDoctorsAndSchedules = useCallback(async () => {
     try {
@@ -207,7 +241,7 @@ const BookAppointment = () => {
     setSelectedSlot(null);
     setExpandedDoctorId(null);
     setErrors({});
-  }, [visitType, effectiveDate]);
+  }, [visitType, effectiveDate, selectedDepartment]);
 
   const bookedTimesForDoctor = (doctorId: number): string[] =>
     dayAppointments
@@ -285,6 +319,8 @@ const BookAppointment = () => {
         scheduled_time: res.data.scheduled_time,
         status: res.data.status,
         queue_token: res.data.queue_token,
+        department: res.data.department ?? null,
+        doctor_specialization: res.data.doctor_specialization ?? null,
       });
       setSelectedSlot(null);
       setSelectedDoctorId(null);
@@ -302,17 +338,7 @@ const BookAppointment = () => {
     }
   };
 
-  const formatWhen = (iso: string | null) => {
-    if (!iso) return '—';
-    const d = new Date(iso);
-    return d.toLocaleString('en-US', {
-      weekday: 'short',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  };
+  const formatWhen = (iso: string | null) => formatAppointmentDateTime(iso);
 
   const applyFutureDate = (next: string) => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(next)) {
@@ -435,10 +461,67 @@ const BookAppointment = () => {
               </TouchableOpacity>
             </View>
             <Text className="text-[11px] text-slate-400 mt-2">
-              {dayKey ? `${dayKey} · schedules recalculate for all doctors` : ''}
+              {dayKey ? `${dayKey} · schedules recalculate for filtered doctors` : ''}
             </Text>
           </View>
         )}
+
+        {/* Chief complaint (guides department choice — not AI diagnosis) */}
+        <Text className="text-xs font-bold text-slate-700 mb-2">Chief complaint</Text>
+        <TextInput
+          value={chiefComplaint}
+          onChangeText={setChiefComplaint}
+          placeholder='e.g. "Dil mein dard hai"'
+          placeholderTextColor="#94A3B8"
+          multiline
+          className="mb-5 bg-white border border-slate-200 rounded-2xl px-4 py-3 text-sm text-slate-800 min-h-[72px]"
+          textAlignVertical="top"
+        />
+        <Text className="text-[11px] text-slate-400 -mt-3 mb-5">
+          Enter the complaint, then pick a department manually. No automatic diagnosis.
+        </Text>
+
+        {/* Department / specialty filter from existing doctor specializations */}
+        <Text className="text-xs font-bold text-slate-700 mb-2">Department / Specialty *</Text>
+        <View className="flex-row flex-wrap mb-5" style={{ gap: 8 }}>
+          <TouchableOpacity
+            onPress={() => setSelectedDepartment(DEPT_ALL)}
+            className={`px-3 py-2 rounded-xl border ${
+              selectedDepartment === DEPT_ALL
+                ? 'bg-teal-600 border-teal-600'
+                : 'bg-white border-slate-200'
+            }`}
+          >
+            <Text
+              className={`text-xs font-bold ${
+                selectedDepartment === DEPT_ALL ? 'text-white' : 'text-slate-600'
+              }`}
+            >
+              All / Any
+            </Text>
+          </TouchableOpacity>
+          {departmentOptions.map((dept) => {
+            const selected = selectedDepartment === dept;
+            return (
+              <TouchableOpacity
+                key={dept}
+                onPress={() => setSelectedDepartment(dept)}
+                className={`px-3 py-2 rounded-xl border ${
+                  selected ? 'bg-teal-600 border-teal-600' : 'bg-white border-slate-200'
+                }`}
+              >
+                <Text className={`text-xs font-bold ${selected ? 'text-white' : 'text-slate-600'}`}>
+                  {dept}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+        {departmentOptions.length === 0 && !loadingList ? (
+          <Text className="text-[11px] text-amber-600 -mt-3 mb-5">
+            No doctor specializations found yet. Showing all doctors.
+          </Text>
+        ) : null}
 
         {/* Doctors + expandable slots */}
         <Text className="text-xs font-bold text-slate-700 mb-2">
@@ -447,11 +530,15 @@ const BookAppointment = () => {
 
         {loadingList ? (
           <ActivityIndicator color="#0D9488" className="mb-5" />
-        ) : doctors.length === 0 ? (
-          <Text className="text-sm text-slate-400 mb-5">No doctors available.</Text>
+        ) : filteredDoctors.length === 0 ? (
+          <Text className="text-sm text-slate-400 mb-5">
+            {doctors.length === 0
+              ? 'No doctors available.'
+              : `No doctors in ${selectedDepartment}. Try another department or All / Any.`}
+          </Text>
         ) : (
           <View className="mb-5 gap-y-3">
-            {doctors.map((d) => {
+            {filteredDoctors.map((d) => {
               const meta = doctorMeta(d.doctor_id);
               const expanded = expandedDoctorId === d.doctor_id;
               const selected =
@@ -510,7 +597,7 @@ const BookAppointment = () => {
                         {d.name}
                       </Text>
                       <Text className="text-xs text-slate-500 mt-0.5">
-                        {d.specialization || 'General'}
+                        {d.specialization?.trim() || 'Not specified'}
                         {meta.rangeLabel ? ` · ${meta.rangeLabel}` : ''}
                       </Text>
                       <View className={`self-start mt-2 px-2 py-0.5 rounded-full border ${statusBg}`}>
@@ -572,6 +659,11 @@ const BookAppointment = () => {
                                 >
                                   {formatMinutesToDisplay(slot.minutes)}
                                 </Text>
+                                {slot.reason === 'booked' ? (
+                                  <Text className="text-[9px] font-semibold text-slate-400 mt-0.5">
+                                    Booked
+                                  </Text>
+                                ) : null}
                               </TouchableOpacity>
                             );
                           })}
@@ -689,7 +781,19 @@ const BookAppointment = () => {
               </Text>
               <Text className="text-xs text-slate-500">
                 Doctor:{' '}
-                <Text className="font-bold text-slate-800">{booked?.doctor_name || '—'}</Text>
+                <Text className="font-bold text-slate-800">
+                  {booked?.doctor_name?.trim() || '—'}
+                </Text>
+              </Text>
+              <Text className="text-xs text-slate-500">
+                Department:{' '}
+                <Text className="font-bold text-slate-800">
+                  {(
+                    booked?.department ||
+                    booked?.doctor_specialization ||
+                    ''
+                  ).trim() || 'Not specified'}
+                </Text>
               </Text>
               <Text className="text-xs text-slate-500">
                 When:{' '}
@@ -713,6 +817,8 @@ const BookAppointment = () => {
                       queue_token: booked.queue_token,
                       scheduled_time: booked.scheduled_time,
                       doctor_name: booked.doctor_name,
+                      department:
+                        booked.department || booked.doctor_specialization || null,
                     })
                   }
                   className="w-full bg-teal-600 p-4 rounded-2xl items-center flex-row justify-center gap-x-2"

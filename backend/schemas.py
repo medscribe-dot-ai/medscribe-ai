@@ -232,6 +232,9 @@ class AppointmentResponse(BaseModel):
     patient_name: Optional[str] = None
     patient_code: Optional[str] = None
     doctor_name: Optional[str] = None
+    # Existing patient.department / doctor.specialization (no new DB columns)
+    department: Optional[str] = None
+    doctor_specialization: Optional[str] = None
 
     class Config:
         from_attributes = True

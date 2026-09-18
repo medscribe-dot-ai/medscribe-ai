@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import React, { useCallback, useState } from 'react';
 import { ActivityIndicator, Alert, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '../../../src/theme/colors';
@@ -17,11 +17,7 @@ export default function DoctorDetails() {
     const [deleting, setDeleting] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    useEffect(() => {
-        loadDoctorData();
-    }, [id]);
-
-    const loadDoctorData = async () => {
+    const loadDoctorData = useCallback(async () => {
         const doctorId = Array.isArray(id) ? id[0] : id;
 
         if (!doctorId) {
@@ -63,7 +59,13 @@ export default function DoctorDetails() {
             clearTimeout(timeoutId);
             setLoading(false);
         }
-    };
+    }, [id]);
+
+    useFocusEffect(
+        useCallback(() => {
+            loadDoctorData();
+        }, [loadDoctorData])
+    );
 
     if (loading) {
         return (

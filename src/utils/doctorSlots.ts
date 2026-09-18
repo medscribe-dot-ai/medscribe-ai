@@ -8,6 +8,9 @@
 
 export const APPOINTMENT_SLOT_MINUTES = 30;
 
+/** Matches backend CLINIC_TZ default (Asia/Karachi). */
+export const CLINIC_TIME_ZONE = 'Asia/Karachi';
+
 const DAY_KEYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
 
 export type DoctorSchedule = Record<string, string>;
@@ -186,15 +189,83 @@ export function isDoctorScheduledOnDate(
   return Boolean(getScheduleRangeLabel(schedule, dateStr));
 }
 
-/** Local HH:MM snapped down to the slot grid (for matching API scheduled_time). */
+/**
+ * Backend persists UTC wall time as a naive ISO string (no Z).
+ * Without normalization, JS treats that as local time and shifts the clock
+ * (e.g. 09:30 PK → stored 04:30 UTC → shown as 4:30).
+ */
+export function parseAppointmentInstant(iso: string | null | undefined): Date | null {
+  if (!iso) return null;
+  const raw = String(iso).trim();
+  if (!raw) return null;
+
+  let normalized = raw;
+  // Naive "YYYY-MM-DDTHH:MM[:SS[.fff]]" → treat as UTC
+  if (
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(raw) &&
+    !/[zZ]$|[+-]\d{2}:?\d{2}$/.test(raw)
+  ) {
+    normalized = `${raw}Z`;
+  }
+
+  const d = new Date(normalized);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function clinicHoursMinutes(d: Date): { hour: number; minute: number } | null {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: CLINIC_TIME_ZONE,
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(d);
+  const hourRaw = parts.find((p) => p.type === 'hour')?.value;
+  const minuteRaw = parts.find((p) => p.type === 'minute')?.value;
+  if (hourRaw == null || minuteRaw == null) return null;
+  let hour = Number(hourRaw);
+  const minute = Number(minuteRaw);
+  if (Number.isNaN(hour) || Number.isNaN(minute)) return null;
+  // Some engines emit "24" for midnight
+  if (hour === 24) hour = 0;
+  return { hour, minute };
+}
+
+/** Clinic-local wall clock for appointment timestamps. */
+export function formatAppointmentTime(iso: string | null | undefined): string {
+  const d = parseAppointmentInstant(iso);
+  if (!d) return '—';
+  return d.toLocaleTimeString('en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: CLINIC_TIME_ZONE,
+  });
+}
+
+/** Clinic-local date + time for appointment timestamps. */
+export function formatAppointmentDateTime(iso: string | null | undefined): string {
+  const d = parseAppointmentInstant(iso);
+  if (!d) return '—';
+  return d.toLocaleString('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: CLINIC_TIME_ZONE,
+  });
+}
+
+/** Clinic-local HH:MM snapped down to the slot grid (for matching API scheduled_time). */
 export function scheduledTimeToSlotHHMM(
   iso: string | null | undefined,
   slotMinutes: number = APPOINTMENT_SLOT_MINUTES
 ): string | null {
-  if (!iso) return null;
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return null;
-  const total = d.getHours() * 60 + d.getMinutes();
+  const d = parseAppointmentInstant(iso);
+  if (!d) return null;
+  const hm = clinicHoursMinutes(d);
+  if (!hm) return null;
+  const total = hm.hour * 60 + hm.minute;
   const snapped = Math.floor(total / slotMinutes) * slotMinutes;
   return formatMinutesToHHMM(snapped);
 }

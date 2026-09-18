@@ -1,4 +1,5 @@
 import { Alert, Share } from 'react-native';
+import { formatAppointmentDateTime } from './doctorSlots';
 
 export type QueueTokenPrintData = {
   patient_name: string | null | undefined;
@@ -6,24 +7,14 @@ export type QueueTokenPrintData = {
   queue_token: string | null | undefined;
   scheduled_time: string | null | undefined;
   doctor_name: string | null | undefined;
+  department?: string | null | undefined;
 };
 
-const formatWhen = (iso: string | null | undefined) => {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '—';
-  return d.toLocaleString('en-US', {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-};
+const formatWhen = (iso: string | null | undefined) => formatAppointmentDateTime(iso);
 
 /** Plain-text slip for share / print-preview (no printer SDK required). */
 export function formatQueueTokenSlip(data: QueueTokenPrintData): string {
+  const dept = (data.department || '').trim() || 'Not specified';
   return [
     'MedScribe AI — Queue Token',
     '----------------------------',
@@ -31,7 +22,8 @@ export function formatQueueTokenSlip(data: QueueTokenPrintData): string {
     `Patient Code: ${data.patient_code || '—'}`,
     `Queue Token: ${data.queue_token || '—'}`,
     `Appointment: ${formatWhen(data.scheduled_time)}`,
-    `Doctor: ${data.doctor_name || '—'}`,
+    `Doctor: ${data.doctor_name?.trim() || '—'}`,
+    `Department: ${dept}`,
     '----------------------------',
   ].join('\n');
 }

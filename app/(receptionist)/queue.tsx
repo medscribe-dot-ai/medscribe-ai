@@ -14,6 +14,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from 'expo-router';
 import axios from 'axios';
 import { API_URL } from '../../src/config/api';
+import { formatAppointmentTime, parseAppointmentInstant } from '../../src/utils/doctorSlots';
 import { printQueueToken } from '../../src/utils/printQueueToken';
 import { ReceptionistMenuButton } from '../../src/components/receptionist/ReceptionistNavMenu';
 
@@ -27,6 +28,8 @@ interface QueueAppointment {
   patient_name: string | null;
   patient_code: string | null;
   doctor_name: string | null;
+  department?: string | null;
+  doctor_specialization?: string | null;
   created_at: string | null;
 }
 
@@ -54,17 +57,13 @@ const PatientQueue = () => {
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   };
 
-  const formatTime = (iso: string | null) => {
-    if (!iso) return '—';
-    return new Date(iso).toLocaleTimeString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  };
+  const formatTime = (iso: string | null) => formatAppointmentTime(iso);
 
   const getWaitMinutes = (fromIso: string | null) => {
     if (!fromIso) return null;
-    const diffMs = Date.now() - new Date(fromIso).getTime();
+    const instant = parseAppointmentInstant(fromIso);
+    if (!instant) return null;
+    const diffMs = Date.now() - instant.getTime();
     return Math.max(0, Math.floor(diffMs / 60000));
   };
 
@@ -227,13 +226,11 @@ const PatientQueue = () => {
                         </Text>
 
                         <View className="flex-row items-center flex-wrap gap-x-2 gap-y-1.5 mt-3">
-                          {item.doctor_name ? (
-                            <View className="bg-teal-50 border border-teal-100 px-2.5 py-0.5 rounded-lg">
-                              <Text className="text-[10px] font-bold text-teal-700">
-                                {item.doctor_name}
-                              </Text>
-                            </View>
-                          ) : null}
+                          <View className="bg-teal-50 border border-teal-100 px-2.5 py-0.5 rounded-lg">
+                            <Text className="text-[10px] font-bold text-teal-700">
+                              Doctor: {item.doctor_name?.trim() || '—'}
+                            </Text>
+                          </View>
                         </View>
                       </View>
                     </View>
@@ -301,6 +298,7 @@ const PatientQueue = () => {
                               queue_token: item.queue_token,
                               scheduled_time: item.scheduled_time,
                               doctor_name: item.doctor_name,
+                              department: item.department || item.doctor_specialization,
                             })
                           }
                           className="px-3 py-2 rounded-xl border border-teal-200 bg-teal-50 flex-row items-center gap-x-1"

@@ -17,6 +17,7 @@ import {
   getDoctorQueue,
   startConsultationVisit,
 } from '@/src/services/doctorService';
+import { formatAppointmentTime } from '@/src/utils/doctorSlots';
 
 export default function FullQueue() {
   const router = useRouter();
@@ -44,13 +45,7 @@ export default function FullQueue() {
     }, [])
   );
 
-  const formatTime = (iso: string | null) => {
-    if (!iso) return '—';
-    return new Date(iso).toLocaleTimeString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  };
+  const formatTime = (iso: string | null) => formatAppointmentTime(iso);
 
   const handleStartConsultation = async (item: DoctorQueueItem) => {
     try {

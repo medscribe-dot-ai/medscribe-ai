@@ -169,7 +169,7 @@ const PatientsPage = () => {
               <View className="items-end">
                 <View className="bg-slate-50 px-3 py-1 rounded-lg border border-slate-100">
                   <Text className="text-[11px] font-bold text-slate-600">
-                    {p.department || 'Unassigned'}
+                    {p.department?.trim() || 'Not specified'}
                   </Text>
                 </View>
                 <Text className="text-[10px] text-slate-400 mt-2">📅 {formatDate(p.created_at)}</Text>

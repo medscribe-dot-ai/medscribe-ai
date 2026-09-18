@@ -4,6 +4,7 @@ import {
   getPatientHistory,
   PatientHistoryVisit,
 } from '@/src/services/patientService';
+import { formatAppointmentDateTime } from '@/src/utils/doctorSlots';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
@@ -292,16 +293,8 @@ async function getPickedAudioBytes(picked: DocumentPicker.DocumentPickerAsset): 
 }
 
 function formatPreviousVisitWhen(iso: string | null | undefined): string {
-  if (!iso) return 'Date not set';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return 'Date not set';
-  return d.toLocaleString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  const formatted = formatAppointmentDateTime(iso);
+  return formatted === '—' ? 'Date not set' : formatted;
 }
 
 function PreviousVisitPanel({

@@ -12,6 +12,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import axios from 'axios';
 import { API_URL } from '../../src/config/api';
+import { formatAppointmentTime } from '../../src/utils/doctorSlots';
 import { printQueueToken } from '../../src/utils/printQueueToken';
 import { ReceptionistMenuButton } from '../../src/components/receptionist/ReceptionistNavMenu';
 
@@ -25,6 +26,8 @@ interface Appointment {
   patient_name: string | null;
   patient_code: string | null;
   doctor_name: string | null;
+  department: string | null;
+  doctor_specialization: string | null;
 }
 
 const statusStyles: Record<string, { bg: string; text: string; label: string }> = {
@@ -53,13 +56,7 @@ const AppointmentsPage = () => {
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   };
 
-  const formatTime = (iso: string | null) => {
-    if (!iso) return '—';
-    return new Date(iso).toLocaleTimeString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  };
+  const formatTime = (iso: string | null) => formatAppointmentTime(iso);
 
   const fetchAppointments = async () => {
     try {
@@ -144,10 +141,12 @@ const AppointmentsPage = () => {
                     <View className="ml-4 flex-1">
                       <Text className="font-bold text-slate-900">{app.patient_name || 'Patient'}</Text>
                       <Text className="text-xs text-slate-500 mt-0.5">
-                        {app.doctor_name || 'Doctor'} • {formatTime(app.scheduled_time)}
+                        Doctor: {app.doctor_name?.trim() || '—'} • {formatTime(app.scheduled_time)}
                       </Text>
                       <Text className="text-[11px] text-slate-400 mt-0.5">
-                        Code: {app.patient_code || '—'}
+                        Dept:{' '}
+                        {(app.department || app.doctor_specialization || '').trim() || 'Not specified'}
+                        {' · '}Code: {app.patient_code || '—'}
                       </Text>
                     </View>
                   </View>
@@ -172,6 +171,7 @@ const AppointmentsPage = () => {
                           queue_token: app.queue_token,
                           scheduled_time: app.scheduled_time,
                           doctor_name: app.doctor_name,
+                          department: app.department || app.doctor_specialization,
                         })
                       }
                       className="bg-teal-600 px-3 py-2.5 rounded-xl flex-row items-center gap-x-1.5"

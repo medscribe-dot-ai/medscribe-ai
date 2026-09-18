@@ -18,18 +18,11 @@ import {
   PatientHistoryVisit,
   PatientListItem,
 } from "../../../src/services/patientService";
+import { formatAppointmentDateTime } from "../../../src/utils/doctorSlots";
 
 function formatVisitWhen(iso: string | null | undefined): string {
-  if (!iso) return "Date not set";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "Date not set";
-  return d.toLocaleString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  const formatted = formatAppointmentDateTime(iso);
+  return formatted === "—" ? "Date not set" : formatted;
 }
 
 function titleCaseStatus(raw: string | null | undefined): string {

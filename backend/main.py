@@ -1158,6 +1158,26 @@ def _store_naive_utc_minute(dt: datetime.datetime) -> datetime.datetime:
     return _as_utc_aware(dt).replace(tzinfo=None, second=0, microsecond=0)
 
 
+def _clinic_day_utc_naive_bounds(date_str: str) -> Tuple[datetime.datetime, datetime.datetime]:
+    """
+    Convert a clinic calendar date (YYYY-MM-DD in CLINIC_TZ) to UTC-naive
+    [start, end) bounds for comparing against stored UTC-naive scheduled_time.
+    """
+    day = datetime.datetime.strptime(date_str, "%Y-%m-%d")
+    start_local = day.replace(tzinfo=_clinic_tz())
+    end_local = start_local + datetime.timedelta(days=1)
+    start_utc = start_local.astimezone(datetime.timezone.utc).replace(tzinfo=None)
+    end_utc = end_local.astimezone(datetime.timezone.utc).replace(tzinfo=None)
+    return start_utc, end_utc
+
+
+def _clinic_day_utc_naive_bounds_for_instant(
+    scheduled_utc_naive: datetime.datetime,
+) -> Tuple[datetime.datetime, datetime.datetime]:
+    local = _to_clinic_local(scheduled_utc_naive)
+    return _clinic_day_utc_naive_bounds(local.strftime("%Y-%m-%d"))
+
+
 def _parse_clock_to_minutes(clock: str) -> Optional[int]:
     m = re.match(r"^(0?[1-9]|1[0-2]):([0-5][0-9])\s?(AM|PM)$", clock.strip(), re.IGNORECASE)
     if not m:
@@ -1362,12 +1382,25 @@ def _generate_queue_token(db: Session) -> str:
     return f"{prefix}{str(count_today + 1).zfill(3)}"
 
 
-def _appointment_response(appt: models.Appointment) -> dict:
+def _appointment_response(appt: models.Appointment, db: Optional[Session] = None) -> dict:
     patient_name = appt.patient.name if appt.patient else None
     patient_code = appt.patient.patient_code if appt.patient else None
+    department = appt.patient.department if appt.patient else None
     doctor_name = None
+    doctor_specialization = None
     if appt.doctor and appt.doctor.user:
         doctor_name = appt.doctor.user.name
+        doctor_specialization = appt.doctor.specialization
+    elif db is not None and appt.doctor_id is not None:
+        doctor = (
+            db.query(models.Doctor)
+            .filter(models.Doctor.doctor_id == appt.doctor_id)
+            .first()
+        )
+        if doctor:
+            doctor_specialization = doctor.specialization
+            if doctor.user:
+                doctor_name = doctor.user.name
     return {
         "appointment_id": appt.appointment_id,
         "patient_id": appt.patient_id,
@@ -1379,6 +1412,8 @@ def _appointment_response(appt: models.Appointment) -> dict:
         "patient_name": patient_name,
         "patient_code": patient_code,
         "doctor_name": doctor_name,
+        "department": department,
+        "doctor_specialization": doctor_specialization,
     }
 
 
@@ -1429,8 +1464,8 @@ def create_appointment(payload: schemas.AppointmentCreate, db: Session = Depends
     _validate_against_doctor_schedule(db, payload.doctor_id, scheduled_time, status)
 
     # Application-level conflict check (cancelled does not block)
-    day_start = scheduled_time.replace(hour=0, minute=0, second=0, microsecond=0)
-    day_end = day_start + datetime.timedelta(days=1)
+    # Use clinic calendar day bounds so evening PK slots are not split across UTC days
+    day_start, day_end = _clinic_day_utc_naive_bounds_for_instant(scheduled_time)
     existing = (
         db.query(models.Appointment)
         .filter(
@@ -1463,6 +1498,14 @@ def create_appointment(payload: schemas.AppointmentCreate, db: Session = Depends
     if status == "waiting":
         queue_token = _generate_queue_token(db)
 
+    # Keep patient.assigned_doctor in sync with the booked appointment doctor
+    patient.assigned_doctor_id = payload.doctor_id
+    if status == "waiting":
+        patient.status = "assigned"
+    # Align patient department with the selected doctor's existing specialization
+    if doctor.specialization and str(doctor.specialization).strip():
+        patient.department = str(doctor.specialization).strip()
+
     try:
         appt = models.Appointment(
             patient_id=payload.patient_id,
@@ -1487,7 +1530,7 @@ def create_appointment(payload: schemas.AppointmentCreate, db: Session = Depends
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to create appointment: {str(e)}")
 
-    return _appointment_response(appt)
+    return _appointment_response(appt, db)
 
 
 @app.get("/appointments", response_model=List[schemas.AppointmentResponse])
@@ -1509,12 +1552,11 @@ def list_appointments(
         query = query.filter(models.Appointment.status == status.lower().strip())
     if date:
         try:
-            day = datetime.datetime.strptime(date, "%Y-%m-%d")
+            day_start, day_end = _clinic_day_utc_naive_bounds(date)
         except ValueError:
             raise HTTPException(status_code=400, detail="date must be YYYY-MM-DD")
-        day_end = day + datetime.timedelta(days=1)
         query = query.filter(
-            models.Appointment.scheduled_time >= day,
+            models.Appointment.scheduled_time >= day_start,
             models.Appointment.scheduled_time < day_end,
         )
 
@@ -1523,7 +1565,7 @@ def list_appointments(
         models.Appointment.created_at.asc(),
     ).all()
 
-    return [_appointment_response(a) for a in appointments]
+    return [_appointment_response(a, db) for a in appointments]
 
 
 @app.patch("/appointments/{appointment_id}/status", response_model=schemas.AppointmentResponse)
@@ -1575,7 +1617,7 @@ def update_appointment_status(
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to update status: {str(e)}")
 
-    return _appointment_response(appt)
+    return _appointment_response(appt, db)
 
 
 # ====================== RECEPTIONIST ENDPOINTS ======================

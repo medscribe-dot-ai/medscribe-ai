@@ -12,6 +12,7 @@ import {
   getDoctorDashboard,
   startConsultationVisit,
 } from '../../src/services/doctorService';
+import { formatAppointmentTime } from '../../src/utils/doctorSlots';
 
 const themeColors = {
   primary: '#0D9488',
@@ -55,13 +56,7 @@ export default function DoctorDashboard() {
     }, [])
   );
 
-  const formatTime = (iso: string | null) => {
-    if (!iso) return '—';
-    return new Date(iso).toLocaleTimeString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  };
+  const formatTime = (iso: string | null) => formatAppointmentTime(iso);
 
   const handleStartConsultation = async (item: DoctorQueueItem) => {
     try {
