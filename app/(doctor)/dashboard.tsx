@@ -145,7 +145,7 @@ export default function DoctorDashboard() {
           </TouchableOpacity>
         </View>
 
-        <View className="flex-row flex-wrap justify-between mb-4">
+        <View className="flex-row flex-wrap justify-between mb-6">
           <KpiCard
             title="In Queue"
             value={data?.stats?.totalInQueue || 0}
@@ -158,26 +158,6 @@ export default function DoctorDashboard() {
             icon="check-decagram-outline"
             iconColor="#16a34a"
           />
-        </View>
-
-        <View className="mb-6">
-          <Text className="text-xl font-bold text-slate-900 mb-4">Quick Actions</Text>
-          <TouchableOpacity
-            onPress={() => router.push('/(doctor)/record')}
-            style={{ backgroundColor: themeColors.primary }}
-            className="p-5 rounded-[28px] flex-row items-center justify-between shadow-md"
-          >
-            <View className="flex-row items-center">
-              <View className="bg-white/20 p-2 rounded-xl mr-4">
-                <MaterialCommunityIcons name="microphone" size={28} color="white" />
-              </View>
-              <View>
-                <Text className="text-white font-bold text-lg">Voice Recording</Text>
-                <Text className="text-white/80 text-xs font-medium">Record notes in Urdu/English</Text>
-              </View>
-            </View>
-            <MaterialCommunityIcons name="chevron-right" size={24} color="white" />
-          </TouchableOpacity>
         </View>
 
         <View className="flex-row justify-between items-center mb-4">

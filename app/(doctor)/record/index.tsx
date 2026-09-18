@@ -7,9 +7,17 @@ import {
 import { formatAppointmentDateTime } from '@/src/utils/doctorSlots';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import {
+  AudioModule,
+  RecordingPresets,
+  setAudioModeAsync,
+  useAudioRecorder,
+  useAudioRecorderState,
+} from 'expo-audio';
 import * as DocumentPicker from 'expo-document-picker';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import * as FileSystem from 'expo-file-system/legacy';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -257,13 +265,15 @@ function getErrorMessage(err: unknown): string {
   return String(err);
 }
 
-async function getPickedAudioBytes(picked: DocumentPicker.DocumentPickerAsset): Promise<{
+type PreparedAudio = {
   bytes: ArrayBuffer;
   name: string;
   mimeType: string;
   size?: number;
   uri: string;
-}> {
+};
+
+async function getPickedAudioBytes(picked: DocumentPicker.DocumentPickerAsset): Promise<PreparedAudio> {
   let bytes: ArrayBuffer;
 
   if (Platform.OS === 'web') {
@@ -292,6 +302,93 @@ async function getPickedAudioBytes(picked: DocumentPicker.DocumentPickerAsset): 
   };
 }
 
+/** Decode base64 from expo-file-system into a tight ArrayBuffer for Supabase upload. */
+function base64ToArrayBuffer(base64: string): ArrayBuffer {
+  const binaryString = atob(base64);
+  const len = binaryString.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+}
+
+function guessRecordingMeta(uri: string): { ext: string; mimeType: string; name: string } {
+  const rawExt = uri.split('.').pop()?.split('?')[0]?.toLowerCase() || 'm4a';
+  const ext = rawExt.replace(/[^a-z0-9]/g, '') || 'm4a';
+  const mimeType =
+    ext === 'wav'
+      ? 'audio/wav'
+      : ext === 'mp3'
+        ? 'audio/mpeg'
+        : ext === 'webm'
+          ? 'audio/webm'
+          : 'audio/mp4';
+  return { ext, mimeType, name: `consultation_recording.${ext}` };
+}
+
+/**
+ * Load a completed local recording URI into the same PreparedAudio shape as DocumentPicker.
+ * Native recorder URIs are file:// (or content://) — use expo-file-system, not fetch.
+ */
+async function getAudioBytesFromUri(uri: string): Promise<PreparedAudio> {
+  if (!uri?.trim()) {
+    throw new Error('Unable to read the recorded audio. Please try recording again.');
+  }
+
+  let bytes: ArrayBuffer;
+  try {
+    const isRemoteOrBlob =
+      /^https?:\/\//i.test(uri) || uri.startsWith('blob:') || uri.startsWith('data:');
+
+    if (Platform.OS === 'web' && isRemoteOrBlob) {
+      const res = await fetch(uri);
+      if (!res.ok) {
+        throw new Error('Unable to read the recorded audio. Please try recording again.');
+      }
+      bytes = await res.arrayBuffer();
+    } else {
+      // Native local file from expo-audio (file:// / content:// / document path)
+      const base64 = await FileSystem.readAsStringAsync(uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      if (!base64) {
+        throw new Error('The recording appears to be empty. Please try again.');
+      }
+      bytes = base64ToArrayBuffer(base64);
+    }
+  } catch (err) {
+    const message = getErrorMessage(err);
+    if (
+      message.includes('Unable to read the recorded audio') ||
+      message.includes('appears to be empty')
+    ) {
+      throw err instanceof Error ? err : new Error(message);
+    }
+    console.log('Recorded audio read error:', message, { uri });
+    throw new Error('Unable to read the recorded audio. Please try recording again.');
+  }
+
+  if (!bytes.byteLength) {
+    throw new Error('The recording appears to be empty. Please try again.');
+  }
+
+  const meta = guessRecordingMeta(uri);
+  return {
+    bytes,
+    name: meta.name,
+    mimeType: meta.mimeType,
+    size: bytes.byteLength,
+    uri,
+  };
+}
+
+function formatElapsed(totalSeconds: number): string {
+  const m = Math.floor(totalSeconds / 60);
+  const s = totalSeconds % 60;
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
 function formatPreviousVisitWhen(iso: string | null | undefined): string {
   const formatted = formatAppointmentDateTime(iso);
   return formatted === '—' ? 'Date not set' : formatted;
@@ -306,6 +403,12 @@ function PreviousVisitPanel({
   error: string | null;
   visit: PatientHistoryVisit | null;
 }) {
+  const [showFullSoap, setShowFullSoap] = useState(false);
+
+  useEffect(() => {
+    setShowFullSoap(false);
+  }, [visit?.appointment_id]);
+
   const sections = visit
     ? (
         [
@@ -321,6 +424,38 @@ function PreviousVisitPanel({
     visit && sections.length === 0 && visit.soap_note?.trim()
       ? visit.soap_note.trim()
       : null;
+
+  const hasSummary = !!(visit?.clinical_summary && visit.clinical_summary.trim());
+  const hasDetail = sections.length > 0 || !!rawNote;
+  const showDetail = hasSummary ? showFullSoap : hasDetail;
+
+  const detailBlock =
+    sections.length > 0 ? (
+      <View style={{ marginTop: 12 }}>
+        {sections.map((s) => (
+          <View key={s.key} style={{ marginBottom: 10 }}>
+            <Text style={{ fontWeight: '800', color: '#0f172a', fontSize: 12, marginBottom: 2 }}>
+              {s.label}
+            </Text>
+            <Text style={{ color: '#334155', fontSize: 13, lineHeight: 18, fontWeight: '500' }}>
+              {String(s.value).trim()}
+            </Text>
+          </View>
+        ))}
+      </View>
+    ) : rawNote ? (
+      <Text
+        style={{
+          marginTop: 12,
+          color: '#334155',
+          fontSize: 13,
+          lineHeight: 18,
+          fontWeight: '500',
+        }}
+      >
+        {rawNote}
+      </Text>
+    ) : null;
 
   return (
     <View
@@ -356,7 +491,7 @@ function PreviousVisitPanel({
             </Text>
           ) : null}
 
-          {visit.clinical_summary?.trim() ? (
+          {hasSummary ? (
             <View
               style={{
                 marginTop: 12,
@@ -371,41 +506,42 @@ function PreviousVisitPanel({
                 Previous Visit Summary
               </Text>
               <Text style={{ color: '#334155', fontSize: 13, lineHeight: 18, fontWeight: '500' }}>
-                {visit.clinical_summary.trim()}
+                {visit.clinical_summary!.trim()}
               </Text>
             </View>
           ) : null}
 
-          {sections.length > 0 ? (
-            <View style={{ marginTop: 12 }}>
-              {sections.map((s) => (
-                <View key={s.key} style={{ marginBottom: 10 }}>
-                  <Text style={{ fontWeight: '800', color: '#0f172a', fontSize: 12, marginBottom: 2 }}>
-                    {s.label}
-                  </Text>
-                  <Text style={{ color: '#334155', fontSize: 13, lineHeight: 18, fontWeight: '500' }}>
-                    {String(s.value).trim()}
-                  </Text>
-                </View>
-              ))}
-            </View>
-          ) : rawNote ? (
-            <Text
+          {hasSummary && hasDetail ? (
+            <TouchableOpacity
+              onPress={() => setShowFullSoap((prev) => !prev)}
               style={{
                 marginTop: 12,
-                color: '#334155',
-                fontSize: 13,
-                lineHeight: 18,
-                fontWeight: '500',
+                alignSelf: 'flex-start',
+                flexDirection: 'row',
+                alignItems: 'center',
+                paddingVertical: 6,
+                paddingHorizontal: 2,
               }}
+              accessibilityRole="button"
             >
-              {rawNote}
-            </Text>
-          ) : (
-            <Text style={{ marginTop: 10, color: '#64748b', fontSize: 13, fontWeight: '600' }}>
-              Completed visit found, but no SOAP content is available.
-            </Text>
-          )}
+              <MaterialCommunityIcons
+                name={showFullSoap ? 'chevron-up' : 'chevron-down'}
+                size={18}
+                color="#0d9488"
+              />
+              <Text style={{ color: '#0d9488', fontWeight: '800', fontSize: 13, marginLeft: 4 }}>
+                {showFullSoap ? 'Hide Full SOAP' : 'View Full SOAP'}
+              </Text>
+            </TouchableOpacity>
+          ) : null}
+
+          {showDetail && detailBlock
+            ? detailBlock
+            : !hasSummary && !hasDetail ? (
+                <Text style={{ marginTop: 10, color: '#64748b', fontSize: 13, fontWeight: '600' }}>
+                  Completed visit found, but no SOAP content is available.
+                </Text>
+              ) : null}
         </>
       )}
     </View>
@@ -428,6 +564,12 @@ export default function VoiceRecordingScreen() {
   const visitPatientName = params.patient_name || null;
   const visitPatientCode = params.patient_code || null;
 
+  const hasVisitContext =
+    appointmentId != null &&
+    !Number.isNaN(appointmentId) &&
+    patientId != null &&
+    !Number.isNaN(patientId);
+
   const [selectedFile, setSelectedFile] = useState<any>(null);
   const [uploadStatus, setUploadStatus] = useState<UploadStatus>('idle');
   const [consultationId, setConsultationId] = useState<number | null>(null);
@@ -440,11 +582,53 @@ export default function VoiceRecordingScreen() {
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [historyVisits, setHistoryVisits] = useState<PatientHistoryVisit[]>([]);
 
+  const [elapsedSec, setElapsedSec] = useState(0);
+  const [stoppingRecording, setStoppingRecording] = useState(false);
+
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const audioBytesRef = useRef<ArrayBuffer | null>(null);
   const navigatedToReviewRef = useRef(false);
 
-  useEffect(() => () => { if (pollingRef.current) clearInterval(pollingRef.current); }, []);
+  const audioRecorder = useAudioRecorder({
+    ...RecordingPresets.HIGH_QUALITY,
+    directory: 'document',
+  });
+  const recorderState = useAudioRecorderState(audioRecorder);
+  const isRecording = recorderState.isRecording;
+
+  const stopRecorderSafely = useCallback(async () => {
+    try {
+      await audioRecorder.stop();
+    } catch {
+      // Not recording or already stopped
+    }
+  }, [audioRecorder]);
+
+  useEffect(() => () => {
+    if (pollingRef.current) clearInterval(pollingRef.current);
+    void stopRecorderSafely();
+  }, [stopRecorderSafely]);
+
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        void stopRecorderSafely();
+      };
+    }, [stopRecorderSafely])
+  );
+
+  useEffect(() => {
+    if (!isRecording) {
+      setElapsedSec(0);
+      return;
+    }
+    const startedAt = Date.now();
+    setElapsedSec(0);
+    const id = setInterval(() => {
+      setElapsedSec(Math.floor((Date.now() - startedAt) / 1000));
+    }, 1000);
+    return () => clearInterval(id);
+  }, [isRecording]);
 
   useEffect(() => {
     if (!patientId || Number.isNaN(patientId)) {
@@ -509,6 +693,7 @@ export default function VoiceRecordingScreen() {
   };
 
   const handleUploadSelection = async () => {
+    if (isRecording || stoppingRecording) return;
     try {
       const result = await DocumentPicker.getDocumentAsync({ type: 'audio/*', copyToCacheDirectory: true });
       if (result.canceled || !result.assets?.[0]) return;
@@ -587,8 +772,13 @@ export default function VoiceRecordingScreen() {
     }
   };
 
-  const handleUploadAudio = async () => {
-    if (!selectedFile) return;
+  const handleUploadAudio = async (
+    fileOverride?: { name: string; mimeType: string; size?: number; uri: string },
+    options?: { allowWhileStopping?: boolean }
+  ) => {
+    const file = fileOverride ?? selectedFile;
+    if (!file) return;
+    if (!options?.allowWhileStopping && (isRecording || stoppingRecording)) return;
     navigatedToReviewRef.current = false;
     setUploadStatus('uploading');
     setCurrentStep('uploading');
@@ -596,7 +786,7 @@ export default function VoiceRecordingScreen() {
     setProgressPercent(10);
     let uploadedPath: string | null = null;
     try {
-      const fileExt = selectedFile.name.split('.').pop() ?? 'mp3';
+      const fileExt = file.name.split('.').pop() ?? 'mp3';
       const fileName = `${Date.now()}_consultation.${fileExt}`;
       const filePath = `consultations/${fileName}`;
 
@@ -606,10 +796,10 @@ export default function VoiceRecordingScreen() {
       }
 
       console.log('Upload metadata', {
-        name: selectedFile.name,
-        mimeType: selectedFile.mimeType,
-        size: selectedFile.size,
-        uri: selectedFile.uri,
+        name: file.name,
+        mimeType: file.mimeType,
+        size: file.size,
+        uri: file.uri,
         byteLength: audioBytes.byteLength,
         filePath,
       });
@@ -617,7 +807,7 @@ export default function VoiceRecordingScreen() {
       const { error: storageError } = await supabase.storage
         .from('clinical-audios')
         .upload(filePath, audioBytes, {
-          contentType: selectedFile.mimeType || 'audio/mpeg',
+          contentType: file.mimeType || 'audio/mpeg',
           upsert: true,
         });
       if (storageError) {
@@ -648,7 +838,7 @@ export default function VoiceRecordingScreen() {
         body: JSON.stringify({
           audio_url: publicUrl,
           audio_file_path: filePath,
-          file_name: selectedFile.name,
+          file_name: file.name,
           doctor_id: doctorId,
           appointment_id: appointmentId || null,
         }),
@@ -674,6 +864,68 @@ export default function VoiceRecordingScreen() {
     }
   };
 
+  const handleStartRecording = async () => {
+    if (!hasVisitContext) {
+      Alert.alert(
+        'Start from Queue',
+        'Open this screen via Start Consultation so the recording is linked to a patient visit.'
+      );
+      return;
+    }
+    if (isActive || reviewReady || isRecording || stoppingRecording) return;
+
+    try {
+      let permission = await AudioModule.getRecordingPermissionsAsync();
+      if (!permission.granted) {
+        permission = await AudioModule.requestRecordingPermissionsAsync();
+      }
+      if (!permission.granted) {
+        Alert.alert('Permission Denied', 'Microphone access is required to record the consultation.');
+        return;
+      }
+
+      resetState(true);
+      await setAudioModeAsync({
+        allowsRecording: true,
+        playsInSilentMode: true,
+      });
+      await audioRecorder.prepareToRecordAsync();
+      audioRecorder.record();
+    } catch (err) {
+      console.error('Failed to start recording', err);
+      Alert.alert('Recording Error', getErrorMessage(err));
+    }
+  };
+
+  const handleStopRecording = async () => {
+    if (!isRecording || stoppingRecording || isActive) return;
+    setStoppingRecording(true);
+    try {
+      await audioRecorder.stop();
+      const uri = audioRecorder.uri;
+      if (!uri) {
+        throw new Error('Recording finished but no audio file was produced. Please try again.');
+      }
+
+      const prepared = await getAudioBytesFromUri(uri);
+      audioBytesRef.current = prepared.bytes;
+      const fileMeta = {
+        name: prepared.name,
+        mimeType: prepared.mimeType,
+        size: prepared.size,
+        uri: prepared.uri,
+      };
+      setSelectedFile(fileMeta);
+      // Reuse the same upload → process-audio → poll → SOAP path
+      await handleUploadAudio(fileMeta, { allowWhileStopping: true });
+    } catch (err) {
+      console.error('Failed to stop/upload recording', err);
+      Alert.alert('Recording Failed', getErrorMessage(err));
+    } finally {
+      setStoppingRecording(false);
+    }
+  };
+
   const resetState = (clearFile = true) => {
     if (pollingRef.current) {
       clearInterval(pollingRef.current);
@@ -693,6 +945,7 @@ export default function VoiceRecordingScreen() {
 
   const isActive = ['uploading', 'queued', 'processing'].includes(uploadStatus);
   const reviewReady = uploadStatus === 'pending_approval';
+  const controlsLocked = isActive || reviewReady || isRecording || stoppingRecording;
 
   return (
     <ScrollView
@@ -756,27 +1009,135 @@ export default function VoiceRecordingScreen() {
           <View style={{ backgroundColor: '#f0fdfa', padding: 12, borderRadius: 16, marginRight: 14, borderWidth: 1, borderColor: '#99f6e4' }}>
             <MaterialCommunityIcons name="microphone" size={26} color="#0d9488" />
           </View>
-          <View>
+          <View style={{ flex: 1 }}>
             <Text style={{ fontSize: 18, fontWeight: '800', color: '#0f172a' }}>New Consultation</Text>
-            <Text style={{ color: '#64748b', fontSize: 12, marginTop: 1 }}>Upload audio to generate SOAP note</Text>
+            <Text style={{ color: '#64748b', fontSize: 12, marginTop: 1 }}>
+              Record live or upload audio to generate a SOAP note
+            </Text>
           </View>
         </View>
 
+        {!hasVisitContext ? (
+          <View
+            style={{
+              backgroundColor: '#fff7ed',
+              borderWidth: 1,
+              borderColor: '#fed7aa',
+              borderRadius: 14,
+              padding: 12,
+              marginBottom: 16,
+            }}
+          >
+            <Text style={{ color: '#9a3412', fontSize: 13, fontWeight: '600' }}>
+              Start a visit from the patient queue to enable live microphone recording. File upload
+              remains available as a fallback.
+            </Text>
+          </View>
+        ) : null}
+
+        {/* Live microphone — visit-linked only */}
+        {hasVisitContext ? (
+          <View style={{ marginBottom: 16 }}>
+            {isRecording || stoppingRecording ? (
+              <View
+                style={{
+                  backgroundColor: '#fef2f2',
+                  borderWidth: 1,
+                  borderColor: '#fecaca',
+                  borderRadius: 18,
+                  padding: 16,
+                  marginBottom: 12,
+                }}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <View
+                      style={{
+                        width: 10,
+                        height: 10,
+                        borderRadius: 5,
+                        backgroundColor: '#ef4444',
+                        marginRight: 8,
+                      }}
+                    />
+                    <Text style={{ color: '#b91c1c', fontWeight: '800', fontSize: 14 }}>
+                      {stoppingRecording ? 'Finishing recording…' : 'Recording'}
+                    </Text>
+                  </View>
+                  <Text style={{ color: '#0f172a', fontWeight: '800', fontSize: 18, fontVariant: ['tabular-nums'] }}>
+                    {formatElapsed(elapsedSec)}
+                  </Text>
+                </View>
+                <Text style={{ color: '#64748b', fontSize: 12, marginTop: 8, fontWeight: '500' }}>
+                  Speak normally. Stop when the consultation is finished — audio uploads once as a
+                  complete file.
+                </Text>
+              </View>
+            ) : null}
+
+            {!isRecording ? (
+              <TouchableOpacity
+                onPress={handleStartRecording}
+                disabled={controlsLocked}
+                style={{
+                  backgroundColor: controlsLocked ? '#94a3b8' : '#0d9488',
+                  padding: 16,
+                  borderRadius: 18,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  opacity: controlsLocked ? 0.6 : 1,
+                }}
+              >
+                <MaterialCommunityIcons name="microphone" size={22} color="white" />
+                <Text style={{ color: 'white', fontWeight: '800', fontSize: 15, marginLeft: 10 }}>
+                  Start Recording
+                </Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                onPress={handleStopRecording}
+                disabled={stoppingRecording || isActive}
+                style={{
+                  backgroundColor: '#dc2626',
+                  padding: 16,
+                  borderRadius: 18,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  opacity: stoppingRecording || isActive ? 0.7 : 1,
+                }}
+              >
+                {stoppingRecording ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <>
+                    <MaterialCommunityIcons name="stop-circle-outline" size={22} color="white" />
+                    <Text style={{ color: 'white', fontWeight: '800', fontSize: 15, marginLeft: 10 }}>
+                      End Consultation & Upload
+                    </Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            )}
+          </View>
+        ) : null}
+
         <TouchableOpacity
           onPress={handleUploadSelection}
-          disabled={isActive || reviewReady}
+          disabled={controlsLocked}
           style={{
-            borderStyle: 'dashed', borderColor: isActive || reviewReady ? '#cbd5e1' : '#0d9488',
+            borderStyle: 'dashed', borderColor: controlsLocked ? '#cbd5e1' : '#0d9488',
             borderWidth: 2, padding: 36, borderRadius: 20,
             alignItems: 'center', backgroundColor: '#f8fafc', marginBottom: 16,
-            opacity: isActive || reviewReady ? 0.5 : 1,
+            opacity: controlsLocked ? 0.5 : 1,
           }}
         >
-          <MaterialCommunityIcons name="cloud-upload" size={44} color={isActive || reviewReady ? '#94a3b8' : '#0d9488'} />
-          <Text style={{ color: isActive || reviewReady ? '#94a3b8' : '#0d9488', fontWeight: '700', fontSize: 16, marginTop: 12 }}>
+          <MaterialCommunityIcons name="cloud-upload" size={44} color={controlsLocked ? '#94a3b8' : '#0d9488'} />
+          <Text style={{ color: controlsLocked ? '#94a3b8' : '#0d9488', fontWeight: '700', fontSize: 16, marginTop: 12 }}>
             {selectedFile ? 'File Selected' : 'Choose Audio from Device'}
           </Text>
-          <Text style={{ color: '#94a3b8', fontSize: 12, marginTop: 4 }}>MP3, WAV, M4A supported</Text>
+          <Text style={{ color: '#94a3b8', fontSize: 12, marginTop: 4 }}>MP3, WAV, M4A supported · fallback</Text>
         </TouchableOpacity>
 
         {selectedFile && (
@@ -786,7 +1147,7 @@ export default function VoiceRecordingScreen() {
               <Text style={{ color: '#0f172a', fontWeight: '600', fontSize: 14 }} numberOfLines={1}>{selectedFile.name}</Text>
               <Text style={{ color: '#64748b', fontSize: 12, marginTop: 2 }}>Ready to process</Text>
             </View>
-            {!isActive && !reviewReady && (
+            {!isActive && !reviewReady && !isRecording && !stoppingRecording && (
               <TouchableOpacity onPress={() => {
                 setSelectedFile(null);
                 audioBytesRef.current = null;
@@ -829,9 +1190,9 @@ export default function VoiceRecordingScreen() {
         progressPercent={progressPercent}
       />
 
-      {selectedFile && uploadStatus === 'idle' && (
+      {selectedFile && uploadStatus === 'idle' && !isRecording && !stoppingRecording && (
         <TouchableOpacity
-          onPress={handleUploadAudio}
+          onPress={() => handleUploadAudio()}
           style={{
             backgroundColor: '#0d9488', padding: 18, borderRadius: 20,
             flexDirection: 'row', alignItems: 'center', justifyContent: 'center',

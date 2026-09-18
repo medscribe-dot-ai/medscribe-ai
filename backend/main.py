@@ -963,13 +963,17 @@ def approve_soap_note(
         consultation.doctor_id = request.doctor_id
     consultation.updated_at = datetime.datetime.utcnow()
 
-    # Complete linked OPD visit when SOAP is approved
+    # Complete linked OPD visit when SOAP is approved.
+    # Queue only shows waiting|in_progress — appointment must leave those states.
     if consultation.appointment_id:
         appt = db.query(models.Appointment).filter(
             models.Appointment.appointment_id == consultation.appointment_id
         ).first()
-        if appt and appt.status == "in_progress":
-            appt.status = "completed"
+        if appt:
+            current_appt_status = (appt.status or "").lower().strip()
+            if current_appt_status in ("waiting", "in_progress"):
+                appt.status = "completed"
+            # completed / cancelled / other statuses left unchanged
 
     parsed = parse_soap_sections(final_soap)
 
