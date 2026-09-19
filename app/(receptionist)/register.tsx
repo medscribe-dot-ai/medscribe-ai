@@ -47,11 +47,19 @@ const RegisterPatient = () => {
     if (!fullName.trim() || fullName.trim().length < 3) {
       newErrors.fullName = "Enter the patient's full name (min 3 characters).";
     }
-    if (!age.trim() || isNaN(Number(age)) || Number(age) <= 0 || Number(age) > 120) {
-      newErrors.age = "Enter a valid age.";
+
+    const ageTrimmed = age.trim();
+    const ageNum = Number(ageTrimmed);
+    if (!ageTrimmed || !/^\d+$/.test(ageTrimmed) || ageNum <= 0 || ageNum > 120) {
+      newErrors.age = 'Enter a valid age (1–120).';
     }
-    if (phone.trim() && !/^[0-9+\-\s]{7,15}$/.test(phone.trim())) {
-      newErrors.phone = "Enter a valid phone number.";
+
+    const phoneTrimmed = phone.trim();
+    if (phoneTrimmed) {
+      const digitCount = phoneTrimmed.replace(/\D/g, '').length;
+      if (!/^[0-9+\-\s]{7,15}$/.test(phoneTrimmed) || digitCount < 7) {
+        newErrors.phone = 'Enter a valid phone number.';
+      }
     }
 
     setErrors(newErrors);
@@ -74,7 +82,7 @@ const RegisterPatient = () => {
 
     const response = await axios.post(`${API_URL}/receptionist/register-patient`, {
       name: fullName.trim(),
-      age: Number(age),
+      age: Number(age.trim()),
       phone: phone.trim() || null,
       gender,
       marital_status: maritalStatus,

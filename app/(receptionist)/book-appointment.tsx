@@ -110,6 +110,14 @@ const BookAppointment = () => {
   const patientName = params.name || 'Patient';
   const patientCode = params.patient_code || '—';
 
+  const handleBack = () => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+    router.replace('/(receptionist)/patients');
+  };
+
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [schedulesByDoctor, setSchedulesByDoctor] = useState<Record<number, DoctorSchedule>>(
     {}
@@ -219,7 +227,7 @@ const BookAppointment = () => {
   useEffect(() => {
     if (!patientId || Number.isNaN(patientId)) {
       Alert.alert('Missing Patient', 'Select a patient before booking.', [
-        { text: 'OK', onPress: () => router.back() },
+        { text: 'OK', onPress: handleBack },
       ]);
       return;
     }
@@ -282,6 +290,9 @@ const BookAppointment = () => {
 
   const validate = () => {
     const next: { [key: string]: string } = {};
+    if (!patientId || Number.isNaN(patientId)) {
+      next.patient = 'Select a patient before booking.';
+    }
     if (!selectedDoctorId) {
       next.doctor =
         visitType === 'waiting'
@@ -312,9 +323,11 @@ const BookAppointment = () => {
     if (!validate()) {
       Alert.alert(
         'Missing Information',
-        visitType === 'waiting'
-          ? 'Please select an available doctor.'
-          : 'Please select an available doctor and time slot.'
+        !patientId || Number.isNaN(patientId)
+          ? 'Select a patient before booking.'
+          : visitType === 'waiting'
+            ? 'Please select an available doctor.'
+            : 'Please select an available doctor and time slot.'
       );
       return;
     }
@@ -394,7 +407,7 @@ const BookAppointment = () => {
   return (
     <SafeAreaView style={{ flex: 1, overflow: 'hidden', backgroundColor: '#F8FAFC' }} edges={[]}>
       <View className="px-6 py-4 flex-row items-center border-b border-slate-100 bg-white">
-        <TouchableOpacity onPress={() => router.back()}>
+        <TouchableOpacity onPress={handleBack}>
           <Feather name="arrow-left" size={24} color="#1E293B" />
         </TouchableOpacity>
         <Text className="text-lg font-bold ml-4 text-slate-800">Book Appointment</Text>
@@ -739,9 +752,9 @@ const BookAppointment = () => {
                 </View>
               );
             })}
-            {errors.doctor || errors.time ? (
+            {errors.patient || errors.doctor || errors.time ? (
               <Text className="text-red-500 text-xs mt-1">
-                {errors.doctor || errors.time}
+                {errors.patient || errors.doctor || errors.time}
               </Text>
             ) : null}
           </View>
@@ -752,6 +765,8 @@ const BookAppointment = () => {
           disabled={
             submitting ||
             loadingList ||
+            !patientId ||
+            Number.isNaN(patientId) ||
             !selectedDoctorId ||
             (visitType === 'scheduled' && !selectedSlot)
           }
@@ -759,6 +774,8 @@ const BookAppointment = () => {
           style={{
             opacity:
               submitting ||
+              !patientId ||
+              Number.isNaN(patientId) ||
               !selectedDoctorId ||
               (visitType === 'scheduled' && !selectedSlot)
                 ? 0.6
