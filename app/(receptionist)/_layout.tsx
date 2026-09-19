@@ -71,9 +71,10 @@ export default function ReceptionistLayout() {
         }}
       />
 
-      {/* Secondary flows — reachable via push, hidden from tab bar */}
+      {/* Secondary flows — push targets; excluded from tab bar */}
       <Tabs.Screen name="register" options={{ href: null }} />
       <Tabs.Screen name="book-appointment" options={{ href: null }} />
+      {/* Intentionally unused / unlinked — keep href:null so it never appears as a tab */}
       <Tabs.Screen name="settings" options={{ href: null }} />
     </Tabs>
       </View>
