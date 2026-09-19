@@ -7,6 +7,14 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { API_URL } from '../../src/config/api';
 
+type DuplicatePatient = {
+  patient_id: number;
+  patient_code: string | null;
+  name: string;
+  age?: number | null;
+  phone?: string | null;
+};
+
 const RegisterPatient = () => {
   const router = useRouter();
 
@@ -28,6 +36,10 @@ const RegisterPatient = () => {
     username: string;
     temp_password: string;
   } | null>(null);
+
+  // Duplicate-phone confirmation (409)
+  const [showDuplicate, setShowDuplicate] = useState(false);
+  const [duplicatePatient, setDuplicatePatient] = useState<DuplicatePatient | null>(null);
 
   const validate = () => {
     const newErrors: { [key: string]: string } = {};
@@ -55,6 +67,33 @@ const RegisterPatient = () => {
     setErrors({});
   };
 
+  const submitRegistration = async (allowDuplicatePhone: boolean) => {
+    const userDataRaw = await AsyncStorage.getItem('user_data');
+    const userData = userDataRaw ? JSON.parse(userDataRaw) : null;
+    const receptionistId = userData?.receptionist_id ?? null;
+
+    const response = await axios.post(`${API_URL}/receptionist/register-patient`, {
+      name: fullName.trim(),
+      age: Number(age),
+      phone: phone.trim() || null,
+      gender,
+      marital_status: maritalStatus,
+      registered_by: receptionistId,
+      allow_duplicate_phone: allowDuplicatePhone,
+    });
+
+    setRegisteredPatient({
+      patient_id: response.data.patient_id,
+      name: response.data.name,
+      patient_code: response.data.patient_code,
+      username: response.data.username,
+      temp_password: response.data.temp_password,
+    });
+    setShowDuplicate(false);
+    setDuplicatePatient(null);
+    setShowSuccess(true);
+  };
+
   const handleSubmit = async () => {
     if (!validate()) {
       Alert.alert("Missing Information", "Please fix the highlighted fields.");
@@ -63,33 +102,54 @@ const RegisterPatient = () => {
 
     setSubmitting(true);
     try {
-      const userDataRaw = await AsyncStorage.getItem('user_data');
-      const userData = userDataRaw ? JSON.parse(userDataRaw) : null;
-      const receptionistId = userData?.receptionist_id ?? null;
-
-      const response = await axios.post(`${API_URL}/receptionist/register-patient`, {
-        name: fullName.trim(),
-        age: Number(age),
-        phone: phone.trim() || null,
-        gender,
-        marital_status: maritalStatus,
-        registered_by: receptionistId,
-      });
-
-      setSubmitting(false);
-      setRegisteredPatient({
-        patient_id: response.data.patient_id,
-        name: response.data.name,
-        patient_code: response.data.patient_code,
-        username: response.data.username,
-        temp_password: response.data.temp_password,
-      });
-      setShowSuccess(true);
+      await submitRegistration(false);
     } catch (error: any) {
+      const status = error.response?.status;
+      const detail = error.response?.data?.detail;
+
+      if (status === 409 && detail && typeof detail === 'object' && detail.existing_patient) {
+        setDuplicatePatient(detail.existing_patient as DuplicatePatient);
+        setShowDuplicate(true);
+      } else {
+        const errorDetail =
+          typeof detail === 'string'
+            ? detail
+            : detail?.message || 'Could not register patient. Please try again.';
+        Alert.alert('Registration Failed', errorDetail);
+      }
+      console.error('Register patient error:', error.response?.data || error.message);
+    } finally {
       setSubmitting(false);
-      const errorDetail = error.response?.data?.detail || "Could not register patient. Please try again.";
-      Alert.alert("Registration Failed", errorDetail);
-      console.error("Register patient error:", error.response?.data || error.message);
+    }
+  };
+
+  const handleUseExistingPatient = () => {
+    if (!duplicatePatient?.patient_id) return;
+    setShowDuplicate(false);
+    router.push({
+      pathname: '/(receptionist)/book-appointment',
+      params: {
+        patient_id: String(duplicatePatient.patient_id),
+        name: duplicatePatient.name || '',
+        patient_code: duplicatePatient.patient_code || '',
+      },
+    });
+  };
+
+  const handleRegisterAnyway = async () => {
+    setSubmitting(true);
+    try {
+      await submitRegistration(true);
+    } catch (error: any) {
+      const detail = error.response?.data?.detail;
+      const errorDetail =
+        typeof detail === 'string'
+          ? detail
+          : detail?.message || 'Could not register patient. Please try again.';
+      Alert.alert('Registration Failed', errorDetail);
+      console.error('Register anyway error:', error.response?.data || error.message);
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -232,6 +292,77 @@ const RegisterPatient = () => {
           </TouchableOpacity>
         </View>
       </ScrollView>
+
+      {/* DUPLICATE PHONE CONFIRMATION */}
+      <Modal
+        visible={showDuplicate}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowDuplicate(false)}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.55)' }} className="items-center justify-center px-8">
+          <View className="w-full bg-white rounded-3xl p-7 shadow-lg">
+            <View className="items-center mb-4">
+              <View className="w-16 h-16 bg-amber-50 rounded-full items-center justify-center mb-4">
+                <MaterialCommunityIcons name="account-alert-outline" size={36} color="#D97706" />
+              </View>
+              <Text className="text-lg font-black text-slate-900 text-center">Patient already registered</Text>
+              <Text className="text-sm text-slate-500 text-center mt-2">
+                This phone number is already associated with an existing patient.
+              </Text>
+            </View>
+
+            <View className="bg-slate-50 border border-slate-200 rounded-2xl p-4 mb-5">
+              <Text className="text-base font-bold text-slate-800">
+                {duplicatePatient?.name || 'Patient'}
+              </Text>
+              <Text className="text-sm text-slate-500 mt-1">
+                Code: {duplicatePatient?.patient_code || '—'}
+              </Text>
+              {duplicatePatient?.age != null ? (
+                <Text className="text-sm text-slate-500 mt-1">Age: {duplicatePatient.age}</Text>
+              ) : null}
+            </View>
+
+            <View className="w-full gap-y-3">
+              <TouchableOpacity
+                onPress={handleUseExistingPatient}
+                disabled={submitting}
+                className="w-full bg-teal-600 p-4 rounded-2xl items-center flex-row justify-center gap-x-2"
+              >
+                <MaterialCommunityIcons name="account-check-outline" size={18} color="#FFFFFF" />
+                <Text className="text-white font-bold text-sm">Use Existing Patient</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={handleRegisterAnyway}
+                disabled={submitting}
+                className="w-full bg-slate-50 border border-slate-200 p-4 rounded-2xl items-center flex-row justify-center gap-x-2"
+              >
+                {submitting ? (
+                  <ActivityIndicator color="#0D9488" />
+                ) : (
+                  <>
+                    <MaterialCommunityIcons name="account-plus-outline" size={18} color="#475569" />
+                    <Text className="text-slate-700 font-bold text-sm">Register Anyway</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => {
+                  setShowDuplicate(false);
+                  setDuplicatePatient(null);
+                }}
+                disabled={submitting}
+                className="w-full bg-white border border-slate-200 p-4 rounded-2xl items-center"
+              >
+                <Text className="text-slate-600 font-bold text-sm">Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* SUCCESS MODAL WITH TOKEN */}
       <Modal

@@ -1632,9 +1632,50 @@ def update_appointment_status(
 
 # ====================== RECEPTIONIST ENDPOINTS ======================
 
+def normalize_patient_phone(phone: Optional[str]) -> Optional[str]:
+    """Trim and strip spaces/dashes for consistent phone comparison. Does not mutate DB values."""
+    if phone is None:
+        return None
+    cleaned = str(phone).strip().replace(" ", "").replace("-", "")
+    return cleaned or None
+
+
+def find_patient_by_normalized_phone(db: Session, normalized_phone: str) -> Optional[models.Patient]:
+    """Match existing patients using the same normalization (existing stored formats preserved)."""
+    candidates = (
+        db.query(models.Patient)
+        .filter(models.Patient.phone.isnot(None), models.Patient.phone != "")
+        .order_by(models.Patient.created_at.desc(), models.Patient.patient_id.desc())
+        .all()
+    )
+    for patient in candidates:
+        if normalize_patient_phone(patient.phone) == normalized_phone:
+            return patient
+    return None
+
+
 @app.post("/receptionist/register-patient", response_model=schemas.PatientResponse)
 def register_patient(patient_in: schemas.PatientRegister, db: Session = Depends(get_db)):
     import secrets, string
+
+    normalized_phone = normalize_patient_phone(patient_in.phone)
+    if normalized_phone and not patient_in.allow_duplicate_phone:
+        existing = find_patient_by_normalized_phone(db, normalized_phone)
+        if existing is not None:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "duplicate_phone",
+                    "message": "Patient already registered",
+                    "existing_patient": {
+                        "patient_id": existing.patient_id,
+                        "patient_code": existing.patient_code,
+                        "name": existing.name,
+                        "age": existing.age,
+                        "phone": existing.phone,
+                    },
+                },
+            )
 
     # Generate patient_code like P-2024-016 based on year + current count
     year = datetime.datetime.utcnow().year
@@ -1841,7 +1882,8 @@ def get_patient_history(patient_id: int, db: Session = Depends(get_db)):
 @app.get("/patients/recent", response_model=List[schemas.PatientResponse])
 def get_recent_patients(limit: int = 5, db: Session = Depends(get_db)):
     return db.query(models.Patient).order_by(
-        models.Patient.created_at.desc()
+        models.Patient.created_at.desc(),
+        models.Patient.patient_id.desc(),
     ).limit(limit).all()
 
 

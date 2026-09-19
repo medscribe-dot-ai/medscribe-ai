@@ -150,6 +150,8 @@ class PatientRegister(BaseModel):
     department: Optional[str] = None
     assigned_doctor_id: Optional[int] = None
     registered_by: Optional[int] = None  # receptionist_id
+    # Explicit override when receptionist confirms shared/family phone
+    allow_duplicate_phone: bool = False
 
 
 class PatientResponse(BaseModel):
