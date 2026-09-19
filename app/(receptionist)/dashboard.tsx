@@ -33,6 +33,8 @@ const ReceptionistDashboard = () => {
   const [stats, setStats] = useState<Stats | null>(null);
   const [recentPatients, setRecentPatients] = useState<RecentPatient[]>([]);
   const [loading, setLoading] = useState(true);
+  const [statsError, setStatsError] = useState<string | null>(null);
+  const [recentError, setRecentError] = useState<string | null>(null);
 
   const today = new Date().toLocaleDateString('en-US', {
     weekday: 'long',
@@ -59,27 +61,44 @@ const ReceptionistDashboard = () => {
   };
 
   const loadDashboardData = async () => {
-    try {
-      setLoading(true);
+    setLoading(true);
+    setStatsError(null);
+    setRecentError(null);
 
+    try {
       const userDataRaw = await AsyncStorage.getItem('user_data');
       if (userDataRaw) {
         const userData = JSON.parse(userDataRaw);
         setReceptionistName(userData?.name?.split(' ')[0] || 'there');
       }
-
-      const [statsRes, recentRes] = await Promise.all([
-        axios.get(`${API_URL}/dashboard/receptionist-stats`),
-        axios.get(`${API_URL}/patients/recent?limit=5`),
-      ]);
-
-      setStats(statsRes.data);
-      setRecentPatients(recentRes.data);
-    } catch (error: any) {
-      console.error('Failed to load receptionist dashboard:', error.response?.data || error.message);
-    } finally {
-      setLoading(false);
+    } catch {
+      // Keep greeting fallback
     }
+
+    const statsPromise = axios
+      .get(`${API_URL}/dashboard/receptionist-stats`)
+      .then((statsRes) => {
+        setStats(statsRes.data);
+      })
+      .catch((error: any) => {
+        console.error('Failed to load receptionist stats:', error.response?.data || error.message);
+        setStats(null);
+        setStatsError('Unable to load today's overview. Please try again.');
+      });
+
+    const recentPromise = axios
+      .get(`${API_URL}/patients/recent?limit=5`)
+      .then((recentRes) => {
+        setRecentPatients(Array.isArray(recentRes.data) ? recentRes.data : []);
+      })
+      .catch((error: any) => {
+        console.error('Failed to load recent patients:', error.response?.data || error.message);
+        setRecentPatients([]);
+        setRecentError('Unable to load recent registrations. Please try again.');
+      });
+
+    await Promise.all([statsPromise, recentPromise]);
+    setLoading(false);
   };
 
   useFocusEffect(
@@ -121,8 +140,19 @@ const ReceptionistDashboard = () => {
         {/* TODAY AT A GLANCE */}
         <View className="px-6 mt-5">
           <Text className="text-sm font-bold text-slate-800 mb-3">Today at a glance</Text>
-          {loading && !stats ? (
+          {loading && !stats && !statsError ? (
             <ActivityIndicator size="large" color="#0D9488" className="my-6" />
+          ) : statsError ? (
+            <View className="bg-orange-50 border border-orange-100 rounded-2xl p-4 items-center">
+              <MaterialCommunityIcons name="alert-circle-outline" size={28} color="#F97316" />
+              <Text className="text-sm font-bold text-slate-800 mt-2 text-center">{statsError}</Text>
+              <TouchableOpacity
+                onPress={loadDashboardData}
+                className="mt-3 px-5 py-2.5 bg-teal-600 rounded-xl"
+              >
+                <Text className="text-white font-bold text-sm">Retry</Text>
+              </TouchableOpacity>
+            </View>
           ) : (
             <View className="flex-row flex-wrap justify-between gap-y-3">
               <TouchableOpacity
@@ -135,7 +165,7 @@ const ReceptionistDashboard = () => {
                       Registered
                     </Text>
                     <Text className="text-2xl font-black text-slate-800 mt-2">
-                      {stats?.registered_today ?? 0}
+                      {stats?.registered_today ?? '—'}
                     </Text>
                   </View>
                   <View className="p-2 bg-teal-50 rounded-xl">
@@ -154,7 +184,7 @@ const ReceptionistDashboard = () => {
                       In Queue
                     </Text>
                     <Text className="text-2xl font-black text-slate-800 mt-2">
-                      {stats?.in_queue ?? 0}
+                      {stats?.in_queue ?? '—'}
                     </Text>
                   </View>
                   <View className="p-2 bg-amber-50 rounded-xl">
@@ -162,7 +192,7 @@ const ReceptionistDashboard = () => {
                   </View>
                 </View>
                 <Text className="text-[11px] font-medium text-slate-400 mt-2">
-                  Across all departments
+                  Waiting & in progress today
                 </Text>
               </TouchableOpacity>
 
@@ -176,7 +206,7 @@ const ReceptionistDashboard = () => {
                       Appointments
                     </Text>
                     <Text className="text-2xl font-black text-emerald-950 mt-2">
-                      {stats?.appointments_today ?? 0}
+                      {stats?.appointments_today ?? '—'}
                     </Text>
                   </View>
                   <View className="p-2 bg-emerald-100/70 rounded-xl">
@@ -257,7 +287,9 @@ const ReceptionistDashboard = () => {
               </View>
               <Text className="text-sm font-bold text-slate-800">Today's Queue</Text>
               <Text className="text-[10px] text-slate-400 mt-1">
-                {stats?.in_queue ?? 0} waiting / in progress
+                {stats != null
+                  ? `${stats.in_queue} waiting / in progress`
+                  : 'Waiting / in progress today'}
               </Text>
             </TouchableOpacity>
 
@@ -270,7 +302,9 @@ const ReceptionistDashboard = () => {
               </View>
               <Text className="text-sm font-bold text-slate-800">Today's Appointments</Text>
               <Text className="text-[10px] text-slate-400 mt-1">
-                {stats?.appointments_today ?? 0} scheduled today
+                {stats != null
+                  ? `${stats.appointments_today} scheduled today`
+                  : 'Scheduled for today'}
               </Text>
             </TouchableOpacity>
           </View>
@@ -289,8 +323,18 @@ const ReceptionistDashboard = () => {
             </TouchableOpacity>
           </View>
 
-          {loading && recentPatients.length === 0 ? (
+          {loading && recentPatients.length === 0 && !recentError ? (
             <ActivityIndicator size="small" color="#0D9488" />
+          ) : recentError ? (
+            <View className="bg-orange-50 border border-orange-100 rounded-2xl p-4 items-center">
+              <Text className="text-sm font-bold text-slate-800 text-center">{recentError}</Text>
+              <TouchableOpacity
+                onPress={loadDashboardData}
+                className="mt-3 px-5 py-2.5 bg-teal-600 rounded-xl"
+              >
+                <Text className="text-white font-bold text-sm">Retry</Text>
+              </TouchableOpacity>
+            </View>
           ) : recentPatients.length === 0 ? (
             <Text className="text-sm text-slate-400 text-center py-6">No patients registered yet.</Text>
           ) : (

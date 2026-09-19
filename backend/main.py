@@ -1914,18 +1914,25 @@ def get_patient_queue(db: Session = Depends(get_db)):
 
 @app.get("/dashboard/receptionist-stats", response_model=schemas.DashboardStatsResponse)
 def get_receptionist_stats(db: Session = Depends(get_db)):
-    today_start = datetime.datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    # Same clinic calendar day used by appointments/queue (?date=YYYY-MM-DD in CLINIC_TZ)
+    clinic_today = datetime.datetime.now(_clinic_tz()).strftime("%Y-%m-%d")
+    day_start, day_end = _clinic_day_utc_naive_bounds(clinic_today)
 
     registered_today = db.query(models.Patient).filter(
-        models.Patient.created_at >= today_start
+        models.Patient.created_at >= day_start,
+        models.Patient.created_at < day_end,
     ).count()
 
-    in_queue = db.query(models.Patient).filter(
-        models.Patient.status == "waiting"
+    # Align with Receptionist Queue: today's appointments that are waiting or in progress
+    in_queue = db.query(models.Appointment).filter(
+        models.Appointment.scheduled_time >= day_start,
+        models.Appointment.scheduled_time < day_end,
+        models.Appointment.status.in_(("waiting", "in_progress")),
     ).count()
 
     appointments_today = db.query(models.Appointment).filter(
-        models.Appointment.scheduled_time >= today_start
+        models.Appointment.scheduled_time >= day_start,
+        models.Appointment.scheduled_time < day_end,
     ).count()
 
     return {
