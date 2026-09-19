@@ -89,7 +89,8 @@ export function ReceptionistMenuButton({ title }: Props) {
 
   const go = (href: string) => {
     setOpen(false);
-    router.push(href as any);
+    // Tab roots: navigate (not push) to avoid stacking duplicate screens.
+    router.navigate(href as any);
   };
 
   return (
