@@ -60,9 +60,6 @@ export default function DoctorsList() {
     return (
         <SafeAreaView style={{ backgroundColor: colors.background }} className="flex-1" edges={[]}>
             <View className="px-6 py-4 flex-row items-center border-b border-slate-100 bg-white">
-                <TouchableOpacity onPress={() => router.back()} className="mr-4 w-10 h-10 items-center justify-center rounded-full bg-slate-50">
-                    <MaterialCommunityIcons name="chevron-left" size={28} color={colors.darkText} />
-                </TouchableOpacity>
                 <Text className="text-xl font-extrabold text-slate-800 me-3">Doctors List</Text>
                 <View className="bg-teal-100 px-2 py-1 rounded-full">
                     <Text className="text-teal-700 font-bold">{doctors.length}</Text>

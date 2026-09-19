@@ -17,6 +17,14 @@ export default function ReceptionistDetails() {
     const [deleting, setDeleting] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
+    const handleBack = () => {
+        if (router.canGoBack()) {
+            router.back();
+            return;
+        }
+        router.replace('/(admin)/receptionist' as any);
+    };
+
     useEffect(() => {
         loadReceptionistData();
     }, [id]);
@@ -78,7 +86,7 @@ export default function ReceptionistDetails() {
         return (
             <SafeAreaView style={{ backgroundColor: colors.background }} className="flex-1" edges={[]}>
                 <View className="px-6 py-4 flex-row items-center bg-white border-b border-slate-50">
-                    <TouchableOpacity onPress={() => router.push('/(admin)/receptionist')} className="mr-4 p-2 rounded-full bg-slate-50">
+                    <TouchableOpacity onPress={handleBack} className="mr-4 p-2 rounded-full bg-slate-50">
                         <MaterialCommunityIcons name="arrow-left" size={24} color={colors.darkText} />
                     </TouchableOpacity>
                     <Text className="text-xl font-bold">Receptionist Profile</Text>
@@ -176,7 +184,7 @@ export default function ReceptionistDetails() {
         <SafeAreaView style={{ backgroundColor: colors.background }} className="flex-1" edges={[]}>
             <View className="px-6 py-4 flex-row items-center justify-between bg-white border-b border-slate-50">
                 <View className="flex-row items-center">
-                    <TouchableOpacity onPress={() => router.push('/(admin)/receptionist')} className="mr-4 p-2 rounded-full bg-slate-50">
+                    <TouchableOpacity onPress={handleBack} className="mr-4 p-2 rounded-full bg-slate-50">
                         <MaterialCommunityIcons name="arrow-left" size={24} color={colors.darkText} />
                     </TouchableOpacity>
                     <Text className="text-xl font-bold">Receptionist Profile</Text>

@@ -85,23 +85,18 @@ export default function AdminLayout() {
                         />
                     ),
                     tabBarButton: (props) => {
-                        // 1. Props ko destructure karein taake unnecessary null values filter ho jayein
-                        const { children, onPress, accessibilityState, style, ...rest } = props;
+                        const { children, accessibilityState, style } = props;
 
                         return (
                             <TouchableOpacity
-                                // accessibilityState aur style ko lazmi pass karein tab bar ki alignment ke liye
                                 accessibilityState={accessibilityState}
                                 style={style}
                                 activeOpacity={0.7}
-                                onPress={(e) => {
-                                    // Pehle apna custom navigation chalayein
+                                onPress={() => {
                                     router.push({
                                         pathname: "/(admin)/doctor/add",
                                         params: { editData: null }
                                     });
-                                    // Phir tab bar ka default onPress (agar koi hai)
-                                    onPress?.(e);
                                 }}
                             >
                                 {children}

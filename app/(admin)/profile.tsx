@@ -1,13 +1,10 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
 import React from 'react';
 import { ScrollView, StatusBar, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '../../src/theme/colors';
 
 export default function AdminProfile() {
-    const router = useRouter();
-
     // Mock Admin Data
     const adminData = {
         name: "Super Admin",
@@ -23,10 +20,7 @@ export default function AdminProfile() {
 
             {/* Header */}
             <View className="flex-row items-center px-6 py-4">
-                <TouchableOpacity onPress={() => router.back()} className="p-2 -ml-2">
-                    <MaterialCommunityIcons name="chevron-left" size={28} color={colors.darkText} />
-                </TouchableOpacity>
-                <Text className="text-xl font-bold ml-2">Admin Profile</Text>
+                <Text className="text-xl font-bold">Admin Profile</Text>
             </View>
 
             <ScrollView

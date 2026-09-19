@@ -17,6 +17,14 @@ export default function DoctorDetails() {
     const [deleting, setDeleting] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
+    const handleBack = () => {
+        if (router.canGoBack()) {
+            router.back();
+            return;
+        }
+        router.replace('/(admin)/doctor');
+    };
+
     const loadDoctorData = useCallback(async () => {
         const doctorId = Array.isArray(id) ? id[0] : id;
 
@@ -80,7 +88,7 @@ export default function DoctorDetails() {
         return (
             <SafeAreaView style={{ backgroundColor: colors.background }} className="flex-1" edges={[]}>
                 <View className="px-6 py-4 flex-row items-center bg-white border-b border-slate-50">
-                    <TouchableOpacity onPress={() => router.push('/(admin)/doctor')} className="mr-4 p-2 rounded-full bg-slate-50">
+                    <TouchableOpacity onPress={handleBack} className="mr-4 p-2 rounded-full bg-slate-50">
                         <MaterialCommunityIcons name="arrow-left" size={24} color={colors.darkText} />
                     </TouchableOpacity>
                     <Text className="text-xl font-bold">Doctor Profile</Text>
@@ -174,7 +182,7 @@ export default function DoctorDetails() {
         <SafeAreaView style={{ backgroundColor: colors.background }} className="flex-1" edges={[]}>
             <View className="px-6 py-4 flex-row items-center justify-between bg-white border-b border-slate-50">
                 <View className="flex-row items-center">
-                    <TouchableOpacity onPress={() => router.push("/(admin)/doctor")} className="mr-4 p-2 rounded-full bg-slate-50">
+                    <TouchableOpacity onPress={handleBack} className="mr-4 p-2 rounded-full bg-slate-50">
                         <MaterialCommunityIcons name="arrow-left" size={24} color={colors.darkText} />
                     </TouchableOpacity>
                     <Text className="text-xl font-bold">Doctor Profile</Text>
