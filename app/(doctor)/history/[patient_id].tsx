@@ -11,8 +11,10 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import {
+  getPatientById,
   getPatientHistory,
   PatientHistoryVisit,
+  PatientListItem,
 } from '@/src/services/patientService';
 import { formatAppointmentDateTime } from '@/src/utils/doctorSlots';
 
@@ -72,6 +74,9 @@ function HistoryVisitCard({ visit }: { visit: PatientHistoryVisit }) {
       </Text>
     ) : null;
 
+  const doctorLabel = visit.doctor_name?.trim() || null;
+  const tokenLabel = visit.queue_token?.trim() || null;
+
   return (
     <View
       style={{
@@ -83,17 +88,22 @@ function HistoryVisitCard({ visit }: { visit: PatientHistoryVisit }) {
         marginBottom: 12,
       }}
     >
-      <Text style={{ color: '#0d9488', fontSize: 13, fontWeight: '700' }}>
+      <Text style={{ color: '#0d9488', fontSize: 14, fontWeight: '800' }}>
         {formatVisitWhen(visit.scheduled_time)}
       </Text>
-      {visit.doctor_name?.trim() ? (
-        <Text style={{ color: '#64748b', fontSize: 12, marginTop: 4, fontWeight: '600' }}>
-          Doctor: {visit.doctor_name.trim()}
-        </Text>
+
+      {doctorLabel ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8, gap: 6 }}>
+          <MaterialCommunityIcons name="stethoscope" size={15} color="#64748b" />
+          <Text style={{ color: '#334155', fontSize: 13, fontWeight: '700', flex: 1 }}>
+            {doctorLabel}
+          </Text>
+        </View>
       ) : null}
-      {visit.queue_token?.trim() ? (
-        <Text style={{ color: '#64748b', fontSize: 12, marginTop: 2, fontWeight: '600' }}>
-          Token: {visit.queue_token.trim()}
+
+      {tokenLabel ? (
+        <Text style={{ color: '#64748b', fontSize: 12, marginTop: 4, fontWeight: '600' }}>
+          Token: {tokenLabel}
         </Text>
       ) : null}
 
@@ -151,6 +161,26 @@ function HistoryVisitCard({ visit }: { visit: PatientHistoryVisit }) {
   );
 }
 
+function HeaderMetaRow({
+  icon,
+  label,
+  value,
+}: {
+  icon: React.ComponentProps<typeof MaterialCommunityIcons>['name'];
+  label: string;
+  value: string;
+}) {
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8, gap: 8 }}>
+      <MaterialCommunityIcons name={icon} size={16} color="#64748b" />
+      <Text style={{ color: '#64748b', fontSize: 13, fontWeight: '600', flex: 1 }}>
+        <Text style={{ fontWeight: '700', color: '#334155' }}>{label}: </Text>
+        {value}
+      </Text>
+    </View>
+  );
+}
+
 export default function DoctorVisitHistoryScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{
@@ -172,6 +202,7 @@ export default function DoctorVisitHistoryScreen() {
   const [visits, setVisits] = useState<PatientHistoryVisit[]>([]);
   const [patientName, setPatientName] = useState(paramName);
   const [patientCode, setPatientCode] = useState(paramCode);
+  const [patientBasics, setPatientBasics] = useState<PatientListItem | null>(null);
 
   const loadHistory = useCallback(async () => {
     if (!patientId) {
@@ -201,6 +232,26 @@ export default function DoctorVisitHistoryScreen() {
     void loadHistory();
   }, [loadHistory]);
 
+  // Optional demographics — must not block or wipe history on failure.
+  useEffect(() => {
+    let cancelled = false;
+    if (!patientId) {
+      setPatientBasics(null);
+      return;
+    }
+    (async () => {
+      try {
+        const basics = await getPatientById(patientId);
+        if (!cancelled) setPatientBasics(basics);
+      } catch {
+        if (!cancelled) setPatientBasics(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [patientId]);
+
   const completedHistory = useMemo(() => {
     return visits.filter((v) => {
       if (!isCompletedConsultation(v)) return false;
@@ -214,6 +265,17 @@ export default function DoctorVisitHistoryScreen() {
       return true;
     });
   }, [visits, excludeAppointmentId]);
+
+  const displayName =
+    patientName || patientBasics?.name?.trim() || paramName || 'Patient';
+  const displayCode =
+    patientCode || patientBasics?.patient_code?.trim() || paramCode || '—';
+  const ageLabel =
+    patientBasics?.age != null && !Number.isNaN(patientBasics.age)
+      ? `${patientBasics.age} years`
+      : null;
+  const phoneLabel = patientBasics?.phone?.trim() || null;
+  const departmentLabel = patientBasics?.department?.trim() || null;
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#f8fafc' }} edges={[]}>
@@ -234,18 +296,56 @@ export default function DoctorVisitHistoryScreen() {
         >
           <MaterialCommunityIcons name="chevron-left" size={28} color="#1e293b" />
         </TouchableOpacity>
-        <Text style={{ fontSize: 26, fontWeight: '800', color: '#0f172a', letterSpacing: -0.5 }}>
-          Visit History
-        </Text>
-        <Text style={{ color: '#0f172a', fontSize: 16, fontWeight: '800', marginTop: 8 }}>
-          {patientName || 'Patient'}
-        </Text>
-        <Text style={{ color: '#64748b', fontSize: 13, fontWeight: '600', marginTop: 2 }}>
-          Code: {patientCode || '—'}
-        </Text>
-        <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: '600', marginTop: 6 }}>
-          Read-only previous consultations
-        </Text>
+
+        <View
+          style={{
+            backgroundColor: '#ffffff',
+            borderRadius: 20,
+            borderWidth: 1,
+            borderColor: '#e2e8f0',
+            padding: 16,
+          }}
+        >
+          <Text
+            style={{
+              fontSize: 11,
+              fontWeight: '800',
+              color: '#0d9488',
+              textTransform: 'uppercase',
+              letterSpacing: 0.6,
+            }}
+          >
+            Patient Record
+          </Text>
+          <Text
+            style={{
+              color: '#0f172a',
+              fontSize: 22,
+              fontWeight: '800',
+              marginTop: 6,
+              letterSpacing: -0.3,
+            }}
+          >
+            {displayName}
+          </Text>
+          <Text style={{ color: '#64748b', fontSize: 13, fontWeight: '700', marginTop: 4 }}>
+            {displayCode}
+          </Text>
+
+          {ageLabel ? (
+            <HeaderMetaRow icon="calendar-account-outline" label="Age" value={ageLabel} />
+          ) : null}
+          {phoneLabel ? (
+            <HeaderMetaRow icon="phone-outline" label="Phone" value={phoneLabel} />
+          ) : null}
+          {departmentLabel ? (
+            <HeaderMetaRow icon="hospital-building" label="Department" value={departmentLabel} />
+          ) : null}
+
+          <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: '600', marginTop: 12 }}>
+            Read-only previous consultations
+          </Text>
+        </View>
       </View>
 
       {loading ? (
@@ -290,6 +390,19 @@ export default function DoctorVisitHistoryScreen() {
           contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 40, paddingTop: 8 }}
           showsVerticalScrollIndicator={false}
         >
+          <Text
+            style={{
+              fontSize: 13,
+              fontWeight: '800',
+              color: '#0f172a',
+              textTransform: 'uppercase',
+              letterSpacing: 0.6,
+              marginBottom: 12,
+            }}
+          >
+            Visit History
+          </Text>
+
           {completedHistory.length === 0 ? (
             <View
               style={{
@@ -299,7 +412,6 @@ export default function DoctorVisitHistoryScreen() {
                 borderColor: '#e2e8f0',
                 padding: 28,
                 alignItems: 'center',
-                marginTop: 8,
               }}
             >
               <MaterialCommunityIcons name="clipboard-text-outline" size={40} color="#94a3b8" />

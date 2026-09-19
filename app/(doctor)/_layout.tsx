@@ -66,7 +66,18 @@ export default function DoctorLayout() {
           ),
         }}
       />
-      
+
+      <Tabs.Screen
+        name="patients/index"
+        options={{
+          title: 'Patients',
+          tabBarLabel: 'Patients',
+          tabBarIcon: ({ color }) => (
+            <MaterialCommunityIcons name="account-group-outline" size={26} color={color} />
+          ),
+        }}
+      />
+
       {/* Hidden Screens */}
       <Tabs.Screen
         name="report/[id]"
