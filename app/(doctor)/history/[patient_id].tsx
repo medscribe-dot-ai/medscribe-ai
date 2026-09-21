@@ -387,7 +387,7 @@ export default function DoctorVisitHistoryScreen() {
         </View>
       ) : (
         <ScrollView
-          contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 40, paddingTop: 8 }}
+          contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 100, paddingTop: 8 }}
           showsVerticalScrollIndicator={false}
         >
           <Text
