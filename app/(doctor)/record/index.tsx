@@ -607,10 +607,16 @@ export default function VoiceRecordingScreen() {
 
   const [elapsedSec, setElapsedSec] = useState(0);
   const [stoppingRecording, setStoppingRecording] = useState(false);
+  const [uploadInFlight, setUploadInFlight] = useState(false);
 
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const audioBytesRef = useRef<ArrayBuffer | null>(null);
   const navigatedToReviewRef = useRef(false);
+  const uploadInFlightRef = useRef(false);
+  const endConfirmOpenRef = useRef(false);
+  const leaveConfirmOpenRef = useRef(false);
+  const historyNavLockRef = useRef(false);
+  const pollAlertedRef = useRef(false);
 
   const audioRecorder = useAudioRecorder({
     ...RecordingPresets.HIGH_QUALITY,
@@ -740,6 +746,7 @@ export default function VoiceRecordingScreen() {
 
   const startPolling = (id: number) => {
     if (pollingRef.current) clearInterval(pollingRef.current);
+    pollAlertedRef.current = false;
     pollingRef.current = setInterval(async () => {
       try {
         const res = await fetch(`${API_URL}/consultation/${id}/status`);
@@ -765,8 +772,17 @@ export default function VoiceRecordingScreen() {
         } else if (data.status === 'completed' || data.status === 'rejected') {
           setProgressPercent(100);
           if (pollingRef.current) clearInterval(pollingRef.current);
-          if (data.status === 'completed' && data.soap_note?.trim()) {
-            navigateToSoapReview(id);
+          if (data.status === 'completed') {
+            const note = typeof data.soap_note === 'string' ? data.soap_note.trim() : '';
+            if (note) {
+              navigateToSoapReview(id);
+            } else {
+              Alert.alert(
+                'SOAP Not Ready',
+                'Processing finished but no SOAP note was returned. Please try again or contact support.'
+              );
+              setUploadStatus('error');
+            }
           }
         } else if (data.status === 'error') {
           if (pollingRef.current) clearInterval(pollingRef.current);
@@ -775,7 +791,15 @@ export default function VoiceRecordingScreen() {
       } catch (e) {
         const message = getErrorMessage(e);
         console.log('Polling error:', message, e);
-        Alert.alert('Processing Status Error', message);
+        if (pollingRef.current) {
+          clearInterval(pollingRef.current);
+          pollingRef.current = null;
+        }
+        setUploadStatus('error');
+        if (!pollAlertedRef.current) {
+          pollAlertedRef.current = true;
+          Alert.alert('Processing Status Error', message);
+        }
       }
     }, 7000);
   };
@@ -802,6 +826,9 @@ export default function VoiceRecordingScreen() {
     const file = fileOverride ?? selectedFile;
     if (!file) return;
     if (!options?.allowWhileStopping && (isRecording || stoppingRecording)) return;
+    if (uploadInFlightRef.current) return;
+    uploadInFlightRef.current = true;
+    setUploadInFlight(true);
     navigatedToReviewRef.current = false;
     setUploadStatus('uploading');
     setCurrentStep('uploading');
@@ -884,6 +911,9 @@ export default function VoiceRecordingScreen() {
       console.log('Upload error:', message, err, { uploadedPath });
       setUploadStatus('error');
       Alert.alert('Upload Failed', message);
+    } finally {
+      uploadInFlightRef.current = false;
+      setUploadInFlight(false);
     }
   };
 
@@ -951,20 +981,62 @@ export default function VoiceRecordingScreen() {
 
   const confirmEndConsultation = () => {
     if (!isRecording || stoppingRecording || isActive) return;
+    if (endConfirmOpenRef.current) return;
+    endConfirmOpenRef.current = true;
     Alert.alert(
       'End Consultation?',
       'This will stop the recording and upload it for processing. Continue?',
       [
-        { text: 'Continue Recording', style: 'cancel' },
+        {
+          text: 'Continue Recording',
+          style: 'cancel',
+          onPress: () => {
+            endConfirmOpenRef.current = false;
+          },
+        },
         {
           text: 'End & Upload',
           style: 'destructive',
           onPress: () => {
+            endConfirmOpenRef.current = false;
             void handleStopRecording();
           },
         },
       ]
     );
+  };
+
+  const handleBackPress = () => {
+    if (isRecording || stoppingRecording) {
+      if (leaveConfirmOpenRef.current) return;
+      leaveConfirmOpenRef.current = true;
+      Alert.alert(
+        'Leave Consultation?',
+        'Recording is in progress. Leaving will discard the current recording. Are you sure?',
+        [
+          {
+            text: 'Keep Recording',
+            style: 'cancel',
+            onPress: () => {
+              leaveConfirmOpenRef.current = false;
+            },
+          },
+          {
+            text: 'Leave',
+            style: 'destructive',
+            onPress: () => {
+              leaveConfirmOpenRef.current = false;
+              void (async () => {
+                await stopRecorderSafely();
+                router.back();
+              })();
+            },
+          },
+        ]
+      );
+      return;
+    }
+    router.back();
   };
 
   const resetState = (clearFile = true) => {
@@ -982,22 +1054,27 @@ export default function VoiceRecordingScreen() {
     setProgressMessage('');
     setProgressPercent(0);
     navigatedToReviewRef.current = false;
+    uploadInFlightRef.current = false;
+    setUploadInFlight(false);
+    endConfirmOpenRef.current = false;
+    leaveConfirmOpenRef.current = false;
   };
 
   const isActive = ['uploading', 'queued', 'processing'].includes(uploadStatus);
   const reviewReady = uploadStatus === 'pending_approval';
-  const controlsLocked = isActive || reviewReady || isRecording || stoppingRecording;
+  const controlsLocked =
+    isActive || reviewReady || isRecording || stoppingRecording || uploadInFlight;
 
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: '#f8fafc' }}
-      contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 24, paddingBottom: 32 }}
+      contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 24, paddingBottom: 100 }}
       showsVerticalScrollIndicator={false}
     >
       {/* Patient-first header */}
       <View style={{ marginBottom: 20 }}>
         <TouchableOpacity
-          onPress={() => router.back()}
+          onPress={handleBackPress}
           style={{
             backgroundColor: '#fff', width: 40, height: 40, borderRadius: 20,
             alignItems: 'center', justifyContent: 'center', marginBottom: 14,
@@ -1232,6 +1309,8 @@ export default function VoiceRecordingScreen() {
           error={historyError}
           visit={previousCompletedVisit}
           onViewHistory={() => {
+            if (historyNavLockRef.current) return;
+            historyNavLockRef.current = true;
             router.push({
               pathname: '/(doctor)/history/[patient_id]',
               params: {
@@ -1244,6 +1323,9 @@ export default function VoiceRecordingScreen() {
                 patient_code: visitPatientCode || '',
               },
             });
+            setTimeout(() => {
+              historyNavLockRef.current = false;
+            }, 1000);
           }}
         />
       ) : null}
@@ -1274,12 +1356,14 @@ export default function VoiceRecordingScreen() {
         progressPercent={progressPercent}
       />
 
-      {selectedFile && uploadStatus === 'idle' && !isRecording && !stoppingRecording && (
+      {selectedFile && uploadStatus === 'idle' && !isRecording && !stoppingRecording && !uploadInFlight && (
         <TouchableOpacity
           onPress={() => handleUploadAudio()}
+          disabled={uploadInFlight}
           style={{
-            backgroundColor: '#0d9488', padding: 18, borderRadius: 20,
+            backgroundColor: uploadInFlight ? '#94a3b8' : '#0d9488', padding: 18, borderRadius: 20,
             flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+            opacity: uploadInFlight ? 0.6 : 1,
           }}
         >
           <MaterialCommunityIcons name="cloud-upload-outline" size={24} color="white" />
@@ -1307,7 +1391,6 @@ export default function VoiceRecordingScreen() {
       {reviewReady && consultationId != null && (
         <TouchableOpacity
           onPress={() => {
-            navigatedToReviewRef.current = false;
             navigateToSoapReview(consultationId);
           }}
           style={{
