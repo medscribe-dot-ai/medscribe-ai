@@ -206,6 +206,12 @@ def add_doctor(doctor_in: schemas.DoctorCreate, db: Session = Depends(get_db)):
     if existing_user:
         raise HTTPException(status_code=400, detail="Email already registered")
 
+    existing_username = db.query(models.User).filter(
+        models.User.username == doctor_in.user_data.username
+    ).first()
+    if existing_username:
+        raise HTTPException(status_code=400, detail="Username already taken")
+
     hashed_pwd = get_password_hash(doctor_in.user_data.password)
 
     new_user = models.User(

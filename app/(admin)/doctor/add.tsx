@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, FlatList, KeyboardAvoidingView, Modal, Platform, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '../../../src/theme/colors';
@@ -47,6 +47,7 @@ export default function AddDoctor() {
     const [serverReady, setServerReady] = useState(false);
     const [errors, setErrors] = useState<Errors>({});
     const [editingDoctorId, setEditingDoctorId] = useState<number | null>(null);
+    const submitInFlightRef = useRef(false);
 
     const [form, setForm] = useState({
         name: '',
@@ -156,12 +157,39 @@ export default function AddDoctor() {
 
     const validatePassword = (v: string) => {
         if (!isEditMode) {
-            if (!v) return "Password is required.";
+            if (!v.trim()) return "Password is required.";
             if (v.length < 6) return "Password must be at least 6 characters.";
         } else {
-            if (v && v.length < 6) return "Password must be at least 6 characters.";
+            if (v.trim() && v.length < 6) return "Password must be at least 6 characters.";
         }
         return undefined;
+    };
+
+    const getSaveErrorMessage = (data: unknown, status: number): string => {
+        const knownMessages = new Set([
+            'Email already registered',
+            'Username already taken',
+        ]);
+
+        const detail =
+            data && typeof data === 'object' && 'detail' in data
+                ? (data as { detail?: unknown }).detail
+                : undefined;
+        const message =
+            data && typeof data === 'object' && 'message' in data
+                ? (data as { message?: unknown }).message
+                : undefined;
+
+        if (typeof detail === 'string' && knownMessages.has(detail.trim())) {
+            return detail.trim();
+        }
+        if (typeof message === 'string' && knownMessages.has(message.trim())) {
+            return message.trim();
+        }
+        if (status === 422 || Array.isArray(detail)) {
+            return 'Please check the form and try again.';
+        }
+        return 'Unable to save doctor. Please try again.';
     };
 
     const validateSpecialization = (v: string) => {
@@ -218,6 +246,8 @@ export default function AddDoctor() {
             return;
         }
 
+        if (submitInFlightRef.current) return;
+        submitInFlightRef.current = true;
         setLoading(true);
 
         try {
@@ -225,7 +255,6 @@ export default function AddDoctor() {
 
             if (isEditMode) {
                 if (!editingDoctorId) {
-                    setLoading(false);
                     Alert.alert("Error", "Doctor ID is missing. Please go back and try again.");
                     return;
                 }
@@ -281,54 +310,33 @@ export default function AddDoctor() {
             const responseText = await response.text();
             console.log("Raw response:", responseText);
 
-            let data: any = {};
+            let data: unknown = {};
             try {
                 data = JSON.parse(responseText);
-            } catch (e) {
-                setLoading(false);
-                Alert.alert("Error", responseText || "Something went wrong. Please try again.");
+            } catch {
+                Alert.alert("Error", "Unable to save doctor. Please try again.");
                 return;
             }
 
             if (response.ok) {
-                setLoading(false);
                 Alert.alert(
                     isEditMode ? "Doctor updated successfully." : "Doctor added successfully.",
                     isEditMode ? "Doctor profile updated successfully!" : "Doctor registered successfully!",
                     [{ text: "OK", onPress: () => router.push('/(admin)/doctor') }]
                 );
             } else {
-                setLoading(false);
-                let errorMsg = "Something went wrong.";
-
-                if (data.detail) {
-                    if (typeof data.detail === 'string') {
-                        errorMsg = data.detail;
-                    } else if (Array.isArray(data.detail)) {
-                        errorMsg = data.detail
-                            .map((e: any) => {
-                                const field = e.loc ? e.loc.join(' → ') : '';
-                                const msg = e.msg || e.message || JSON.stringify(e);
-                                return field ? `${field}: ${msg}` : msg;
-                            })
-                            .join('\n');
-                    } else {
-                        errorMsg = JSON.stringify(data.detail);
-                    }
-                } else if (data.message) {
-                    errorMsg = data.message;
-                }
-
-                Alert.alert("Error", errorMsg);
+                Alert.alert("Error", getSaveErrorMessage(data, response.status));
             }
 
-        } catch (error: any) {
-            setLoading(false);
+        } catch (error: unknown) {
             console.log("Fetch error:", error);
             Alert.alert(
                 "Connection Error",
                 "Unable to connect to the server. Please check your internet connection and try again."
             );
+        } finally {
+            submitInFlightRef.current = false;
+            setLoading(false);
         }
     };
 
