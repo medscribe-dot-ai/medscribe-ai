@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -19,11 +19,36 @@ import {
 } from '@/src/services/doctorService';
 import { formatAppointmentTime } from '@/src/utils/doctorSlots';
 
+/** Prefer current in_progress visit; else earliest waiting by scheduled_time. */
+function selectNextAppointmentId(queue: DoctorQueueItem[]): number | null {
+  if (!queue.length) return null;
+
+  const inProgress = queue.filter((q) => (q.status || '').toLowerCase() === 'in_progress');
+  if (inProgress.length > 0) {
+    inProgress.sort((a, b) => {
+      const ta = a.scheduled_time ? new Date(a.scheduled_time).getTime() : Number.POSITIVE_INFINITY;
+      const tb = b.scheduled_time ? new Date(b.scheduled_time).getTime() : Number.POSITIVE_INFINITY;
+      return ta - tb;
+    });
+    return inProgress[0].appointment_id;
+  }
+
+  const waiting = queue.filter((q) => (q.status || '').toLowerCase() === 'waiting');
+  if (waiting.length === 0) return null;
+  waiting.sort((a, b) => {
+    const ta = a.scheduled_time ? new Date(a.scheduled_time).getTime() : Number.POSITIVE_INFINITY;
+    const tb = b.scheduled_time ? new Date(b.scheduled_time).getTime() : Number.POSITIVE_INFINITY;
+    return ta - tb;
+  });
+  return waiting[0].appointment_id;
+}
+
 export default function FullQueue() {
   const router = useRouter();
   const [fullQueue, setFullQueue] = useState<DoctorQueueItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [startingId, setStartingId] = useState<number | null>(null);
+  const startLockRef = useRef(false);
 
   const loadQueue = async () => {
     try {
@@ -41,15 +66,24 @@ export default function FullQueue() {
 
   useFocusEffect(
     useCallback(() => {
+      startLockRef.current = false;
+      setStartingId(null);
       loadQueue();
     }, [])
   );
 
   const formatTime = (iso: string | null) => formatAppointmentTime(iso);
 
+  const nextAppointmentId = useMemo(
+    () => selectNextAppointmentId(fullQueue),
+    [fullQueue]
+  );
+
   const handleStartConsultation = async (item: DoctorQueueItem) => {
+    if (startLockRef.current) return;
+    startLockRef.current = true;
+    setStartingId(item.appointment_id);
     try {
-      setStartingId(item.appointment_id);
       if (item.status === 'waiting') {
         await startConsultationVisit(item.appointment_id);
       }
@@ -64,6 +98,7 @@ export default function FullQueue() {
         },
       });
     } catch (error: any) {
+      startLockRef.current = false;
       const detail = error.response?.data?.detail || 'Could not start consultation.';
       Alert.alert('Start Failed', String(detail));
     } finally {
@@ -100,13 +135,13 @@ export default function FullQueue() {
         ) : (
           <ScrollView
             showsVerticalScrollIndicator={false}
-            contentContainerStyle={{ paddingBottom: 40 }}
+            contentContainerStyle={{ paddingBottom: 100 }}
           >
-            {fullQueue.map((item, index) => {
+            {fullQueue.map((item) => {
               const busy = startingId === item.appointment_id;
               const isWaiting = item.status === 'waiting';
               const isInProgress = item.status === 'in_progress';
-              const isNext = index === 0;
+              const isNext = item.appointment_id === nextAppointmentId;
 
               return (
                 <View
@@ -168,7 +203,7 @@ export default function FullQueue() {
 
                   <TouchableOpacity
                     onPress={() => handleStartConsultation(item)}
-                    disabled={busy}
+                    disabled={startingId !== null}
                     style={{ backgroundColor: colors.primary }}
                     className="mt-4 py-3 rounded-2xl flex-row items-center justify-center gap-x-2"
                   >
