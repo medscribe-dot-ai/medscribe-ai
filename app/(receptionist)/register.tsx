@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { View, Text, ScrollView, TextInput, TouchableOpacity, ActivityIndicator, Alert, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -15,6 +15,44 @@ type DuplicatePatient = {
   phone?: string | null;
 };
 
+const REGISTER_FAILED_MESSAGE = 'Could not register patient. Please try again.';
+const REGISTER_CONNECTION_MESSAGE =
+  'Unable to connect to the server. Please check your internet connection and try again.';
+
+function getRegistrationErrorMessage(error: unknown): string {
+  const err = error as { response?: { status?: number; data?: unknown }; message?: string };
+  if (!err?.response) {
+    return REGISTER_CONNECTION_MESSAGE;
+  }
+  // Never surface arbitrary backend detail / exception text to the user.
+  return REGISTER_FAILED_MESSAGE;
+}
+
+function isDuplicatePhoneError(error: unknown): {
+  isDuplicate: boolean;
+  existingPatient: DuplicatePatient | null;
+} {
+  const err = error as {
+    response?: { status?: number; data?: { detail?: unknown } };
+  };
+  const status = err?.response?.status;
+  const detail = err?.response?.data?.detail;
+  if (
+    status === 409 &&
+    detail &&
+    typeof detail === 'object' &&
+    detail !== null &&
+    'existing_patient' in detail &&
+    (detail as { existing_patient?: unknown }).existing_patient
+  ) {
+    return {
+      isDuplicate: true,
+      existingPatient: (detail as { existing_patient: DuplicatePatient }).existing_patient,
+    };
+  }
+  return { isDuplicate: false, existingPatient: null };
+}
+
 const RegisterPatient = () => {
   const router = useRouter();
 
@@ -26,6 +64,7 @@ const RegisterPatient = () => {
 
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
   const [submitting, setSubmitting] = useState(false);
+  const submitInFlightRef = useRef(false);
 
   // Success modal state
   const [showSuccess, setShowSuccess] = useState(false);
@@ -108,25 +147,26 @@ const RegisterPatient = () => {
       return;
     }
 
+    if (submitInFlightRef.current) return;
+    submitInFlightRef.current = true;
     setSubmitting(true);
     try {
       await submitRegistration(false);
-    } catch (error: any) {
-      const status = error.response?.status;
-      const detail = error.response?.data?.detail;
-
-      if (status === 409 && detail && typeof detail === 'object' && detail.existing_patient) {
-        setDuplicatePatient(detail.existing_patient as DuplicatePatient);
+    } catch (error: unknown) {
+      const duplicate = isDuplicatePhoneError(error);
+      if (duplicate.isDuplicate && duplicate.existingPatient) {
+        setDuplicatePatient(duplicate.existingPatient);
         setShowDuplicate(true);
       } else {
-        const errorDetail =
-          typeof detail === 'string'
-            ? detail
-            : detail?.message || 'Could not register patient. Please try again.';
-        Alert.alert('Registration Failed', errorDetail);
+        Alert.alert('Registration Failed', getRegistrationErrorMessage(error));
       }
-      console.error('Register patient error:', error.response?.data || error.message);
+      console.error(
+        'Register patient error:',
+        (error as { response?: { data?: unknown }; message?: string })?.response?.data ||
+          (error as { message?: string })?.message
+      );
     } finally {
+      submitInFlightRef.current = false;
       setSubmitting(false);
     }
   };
@@ -145,18 +185,20 @@ const RegisterPatient = () => {
   };
 
   const handleRegisterAnyway = async () => {
+    if (submitInFlightRef.current) return;
+    submitInFlightRef.current = true;
     setSubmitting(true);
     try {
       await submitRegistration(true);
-    } catch (error: any) {
-      const detail = error.response?.data?.detail;
-      const errorDetail =
-        typeof detail === 'string'
-          ? detail
-          : detail?.message || 'Could not register patient. Please try again.';
-      Alert.alert('Registration Failed', errorDetail);
-      console.error('Register anyway error:', error.response?.data || error.message);
+    } catch (error: unknown) {
+      Alert.alert('Registration Failed', getRegistrationErrorMessage(error));
+      console.error(
+        'Register anyway error:',
+        (error as { response?: { data?: unknown }; message?: string })?.response?.data ||
+          (error as { message?: string })?.message
+      );
     } finally {
+      submitInFlightRef.current = false;
       setSubmitting(false);
     }
   };
