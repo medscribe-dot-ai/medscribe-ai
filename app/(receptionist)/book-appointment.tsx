@@ -1,7 +1,7 @@
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import axios from 'axios';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -60,6 +60,46 @@ interface BookedAppointment {
 
 /** Sentinel for "show all doctors" — not a real specialization value. */
 const DEPT_ALL = '__ALL__';
+
+const BOOKING_FAILED_MESSAGE =
+  'Unable to book appointment. Please check the details and try again.';
+const BOOKING_CONNECTION_MESSAGE =
+  'Unable to connect to the server. Please check your internet connection and try again.';
+
+const KNOWN_BOOKING_MESSAGES = new Set([
+  'Patient already has an active OPD visit. Complete or cancel the current visit before booking another Current OPD appointment.',
+  'This time slot is already booked for this doctor. Please choose another available slot.',
+]);
+
+function getBookingErrorMessage(error: unknown): string {
+  const err = error as {
+    response?: { status?: number; data?: { detail?: unknown; message?: unknown } };
+  };
+
+  if (!err?.response) {
+    return BOOKING_CONNECTION_MESSAGE;
+  }
+
+  const status = err.response.status;
+  const detail = err.response.data?.detail;
+  const message = err.response.data?.message;
+
+  if (typeof detail === 'string') {
+    const trimmed = detail.trim();
+    if (KNOWN_BOOKING_MESSAGES.has(trimmed)) return trimmed;
+    // Appointment 409 responses from this API are human-readable business messages.
+    if (status === 409 && trimmed && !trimmed.startsWith('[') && !trimmed.startsWith('{')) {
+      return trimmed;
+    }
+  }
+
+  if (typeof message === 'string') {
+    const trimmed = message.trim();
+    if (KNOWN_BOOKING_MESSAGES.has(trimmed)) return trimmed;
+  }
+
+  return BOOKING_FAILED_MESSAGE;
+}
 
 const normalizeDept = (value: string | null | undefined) => (value || '').trim();
 
@@ -140,6 +180,7 @@ const BookAppointment = () => {
   const [selectedDepartment, setSelectedDepartment] = useState<string>(DEPT_ALL);
 
   const [submitting, setSubmitting] = useState(false);
+  const submitInFlightRef = useRef(false);
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
   const [showSuccess, setShowSuccess] = useState(false);
   const [booked, setBooked] = useState<BookedAppointment | null>(null);
@@ -350,6 +391,8 @@ const BookAppointment = () => {
       return;
     }
 
+    if (submitInFlightRef.current) return;
+    submitInFlightRef.current = true;
     setSubmitting(true);
     try {
       const res = await axios.post(`${API_URL}/appointments`, {
@@ -374,14 +417,16 @@ const BookAppointment = () => {
       setSelectedDoctorId(null);
       await fetchDayAppointments(effectiveDate);
       setShowSuccess(true);
-    } catch (error: any) {
-      const detail =
-        error.response?.data?.detail ||
-        'Could not book appointment. Ensure the appointments API is deployed.';
-      Alert.alert('Booking Failed', String(detail));
-      console.error('Book appointment error:', error.response?.data || error.message);
+    } catch (error: unknown) {
+      Alert.alert('Booking Failed', getBookingErrorMessage(error));
+      console.error(
+        'Book appointment error:',
+        (error as { response?: { data?: unknown }; message?: string })?.response?.data ||
+          (error as { message?: string })?.message
+      );
       await fetchDayAppointments(effectiveDate);
     } finally {
+      submitInFlightRef.current = false;
       setSubmitting(false);
     }
   };
