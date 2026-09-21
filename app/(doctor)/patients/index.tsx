@@ -23,24 +23,32 @@ export default function DoctorPatientsScreen() {
   const [error, setError] = useState<string | null>(null);
   const searchRef = useRef(query);
   searchRef.current = query;
+  const requestIdRef = useRef(0);
+  const navLockRef = useRef(false);
 
   const loadPatients = useCallback(async (search: string = '') => {
+    const requestId = ++requestIdRef.current;
     try {
       setLoading(true);
       setError(null);
       const rows = await getPatients(search);
+      if (requestId !== requestIdRef.current) return;
       setPatients(Array.isArray(rows) ? rows : []);
     } catch (e: unknown) {
+      if (requestId !== requestIdRef.current) return;
       console.error('Doctor patients error:', e);
       setPatients([]);
       setError('Unable to load patients. Please try again.');
     } finally {
-      setLoading(false);
+      if (requestId === requestIdRef.current) {
+        setLoading(false);
+      }
     }
   }, []);
 
   useFocusEffect(
     useCallback(() => {
+      navLockRef.current = false;
       void loadPatients(searchRef.current.trim());
     }, [loadPatients])
   );
@@ -58,6 +66,8 @@ export default function DoctorPatientsScreen() {
   }, [query, loadPatients]);
 
   const openHistory = (patient: PatientListItem) => {
+    if (navLockRef.current) return;
+    navLockRef.current = true;
     router.push({
       pathname: '/(doctor)/history/[patient_id]',
       params: {
@@ -156,7 +166,7 @@ export default function DoctorPatientsScreen() {
         ) : (
           <ScrollView
             showsVerticalScrollIndicator={false}
-            contentContainerStyle={{ paddingBottom: 40 }}
+            contentContainerStyle={{ paddingBottom: 100 }}
           >
             {patients.map((patient) => (
               <PatientRow
