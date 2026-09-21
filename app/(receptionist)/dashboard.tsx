@@ -83,7 +83,7 @@ const ReceptionistDashboard = () => {
       .catch((error: any) => {
         console.error('Failed to load receptionist stats:', error.response?.data || error.message);
         setStats(null);
-        setStatsError('Unable to load today's overview. Please try again.');
+        setStatsError("Unable to load today's overview. Please try again.");
       });
 
     const recentPromise = axios
@@ -112,7 +112,7 @@ const ReceptionistDashboard = () => {
       <ScrollView
         nestedScrollEnabled={true}
         showsVerticalScrollIndicator={true}
-        contentContainerStyle={{ flexGrow: 1, paddingBottom: 24 }}
+        contentContainerStyle={{ flexGrow: 1, paddingBottom: 100 }}
         style={{ flex: 1 }}
       >
         {/* HEADER */}
@@ -156,7 +156,7 @@ const ReceptionistDashboard = () => {
           ) : (
             <View className="flex-row flex-wrap justify-between gap-y-3">
               <TouchableOpacity
-                onPress={() => router.push('/(receptionist)/patients')}
+                onPress={() => router.navigate('/(receptionist)/patients')}
                 className="w-[48%] bg-white p-4 rounded-2xl border border-slate-100 shadow-sm min-h-[100px]"
               >
                 <View className="flex-row justify-between items-start">
@@ -175,7 +175,7 @@ const ReceptionistDashboard = () => {
               </TouchableOpacity>
 
               <TouchableOpacity
-                onPress={() => router.push('/(receptionist)/queue')}
+                onPress={() => router.navigate('/(receptionist)/queue')}
                 className="w-[48%] bg-white p-4 rounded-2xl border border-slate-100 shadow-sm min-h-[100px]"
               >
                 <View className="flex-row justify-between items-start">
@@ -197,7 +197,7 @@ const ReceptionistDashboard = () => {
               </TouchableOpacity>
 
               <TouchableOpacity
-                onPress={() => router.push('/(receptionist)/appointments')}
+                onPress={() => router.navigate('/(receptionist)/appointments')}
                 className="w-[48%] bg-emerald-50/50 p-4 rounded-2xl border border-emerald-100 min-h-[100px]"
               >
                 <View className="flex-row justify-between items-start">
@@ -257,7 +257,7 @@ const ReceptionistDashboard = () => {
 
           <View className="flex-row flex-wrap justify-between gap-y-3">
             <TouchableOpacity
-              onPress={() => router.push('/(receptionist)/patients')}
+              onPress={() => router.navigate('/(receptionist)/patients')}
               className="w-[48%] p-4 bg-slate-50 border border-slate-100 rounded-2xl"
             >
               <View className="w-9 h-9 bg-teal-50 rounded-xl items-center justify-center mb-3">
@@ -268,7 +268,7 @@ const ReceptionistDashboard = () => {
             </TouchableOpacity>
 
             <TouchableOpacity
-              onPress={() => router.push('/(receptionist)/patients')}
+              onPress={() => router.navigate('/(receptionist)/patients')}
               className="w-[48%] p-4 bg-slate-50 border border-slate-100 rounded-2xl"
             >
               <View className="w-9 h-9 bg-teal-50 rounded-xl items-center justify-center mb-3">
@@ -279,7 +279,7 @@ const ReceptionistDashboard = () => {
             </TouchableOpacity>
 
             <TouchableOpacity
-              onPress={() => router.push('/(receptionist)/queue')}
+              onPress={() => router.navigate('/(receptionist)/queue')}
               className="w-[48%] p-4 bg-amber-50/60 border border-amber-100 rounded-2xl"
             >
               <View className="w-9 h-9 bg-amber-100/80 rounded-xl items-center justify-center mb-3">
@@ -294,7 +294,7 @@ const ReceptionistDashboard = () => {
             </TouchableOpacity>
 
             <TouchableOpacity
-              onPress={() => router.push('/(receptionist)/appointments')}
+              onPress={() => router.navigate('/(receptionist)/appointments')}
               className="w-[48%] p-4 bg-emerald-50/60 border border-emerald-100 rounded-2xl"
             >
               <View className="w-9 h-9 bg-emerald-100/80 rounded-xl items-center justify-center mb-3">
@@ -315,7 +315,7 @@ const ReceptionistDashboard = () => {
           <View className="flex-row justify-between items-center mb-3">
             <Text className="text-sm font-bold text-slate-800">Recent registrations</Text>
             <TouchableOpacity
-              onPress={() => router.push('/(receptionist)/patients')}
+              onPress={() => router.navigate('/(receptionist)/patients')}
               className="flex-row items-center gap-x-1"
             >
               <Text className="text-xs font-bold text-teal-700">View all</Text>
@@ -340,8 +340,19 @@ const ReceptionistDashboard = () => {
           ) : (
             <View className="gap-y-3">
               {recentPatients.map((patient) => (
-                <View
+                <TouchableOpacity
                   key={patient.patient_id}
+                  activeOpacity={0.85}
+                  onPress={() =>
+                    router.push({
+                      pathname: '/(receptionist)/book-appointment',
+                      params: {
+                        patient_id: String(patient.patient_id),
+                        name: patient.name,
+                        patient_code: patient.patient_code || '',
+                      },
+                    })
+                  }
                   className="w-full bg-slate-50/60 border border-slate-100 p-3 rounded-2xl flex-row justify-between items-center"
                 >
                   <View className="flex-row items-center gap-x-3 flex-1 pr-2">
@@ -373,14 +384,14 @@ const ReceptionistDashboard = () => {
                           patient.status === 'assigned' ? 'text-emerald-600' : 'text-amber-600'
                         }`}
                       >
-                        {patient.status === 'assigned' ? 'Assigned' : 'Waiting'}
+                        {patient.status === 'assigned' ? 'Assigned' : 'Unassigned'}
                       </Text>
                     </View>
                     <Text className="text-[10px] text-slate-400 mt-1">
                       {getTimeAgo(patient.created_at)}
                     </Text>
                   </View>
-                </View>
+                </TouchableOpacity>
               ))}
             </View>
           )}
