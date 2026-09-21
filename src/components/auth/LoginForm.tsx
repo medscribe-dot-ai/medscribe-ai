@@ -2,7 +2,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { API_URL } from '../../config/api';
 import { colors } from '../../theme/colors';
@@ -10,6 +10,29 @@ import { colors } from '../../theme/colors';
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const USERNAME_REGEX = /^[a-zA-Z0-9_@.\-]{3,100}$/;
 const MIN_PASSWORD_LENGTH = 6;
+
+function getLoginErrorMessage(error: unknown): string {
+  const err = error as {
+    response?: { status?: number; data?: { detail?: unknown; message?: unknown } };
+    message?: string;
+  };
+  const status = err?.response?.status;
+  const data = err?.response?.data;
+
+  if (status === 401 || status === 403) {
+    const detail = data?.detail;
+    const message = data?.message;
+    if (typeof detail === 'string' && detail.trim()) return detail.trim();
+    if (typeof message === 'string' && message.trim()) return message.trim();
+    return 'Invalid email or password.';
+  }
+
+  if (!err?.response) {
+    return 'Unable to reach the server. Check your connection and try again.';
+  }
+
+  return 'Unable to sign in. Please try again.';
+}
 
 const LoginForm = () => {
   const router = useRouter();
@@ -19,6 +42,7 @@ const LoginForm = () => {
   const [loading, setLoading] = useState(false);
   const [serverStatus, setServerStatus] = useState('checking');
     // checking | ready | offline
+  const loginInFlightRef = useRef(false);
 
   const [errors, setErrors] = useState<{ identifier?: string; password?: string }>({});
 
@@ -76,7 +100,7 @@ const LoginForm = () => {
       newErrors.identifier = "Enter a valid email address or username.";
     }
 
-    if (!password) {
+    if (!password.trim()) {
       newErrors.password = "Password is required.";
     } else if (password.length < MIN_PASSWORD_LENGTH) {
       newErrors.password = `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`;
@@ -101,6 +125,8 @@ const LoginForm = () => {
       return;
     }
 
+    if (loginInFlightRef.current) return;
+    loginInFlightRef.current = true;
     setLoading(true);
 
     try {
@@ -108,8 +134,6 @@ const LoginForm = () => {
         email: identifier.trim(),   // backend accepts email OR username in this field
         password: password
       });
-
-      setLoading(false);
 
       if (response.data.status === "success") {
         const userData = response.data.user;
@@ -133,25 +157,23 @@ const LoginForm = () => {
       } else {
         // Backend responded with 200 OK but status !== "success"
         // (e.g. { status: "fail", message: "Invalid credentials" })
+        const failRaw = response.data.message || response.data.detail;
         const failMessage =
-          response.data.message || response.data.detail || "Invalid email or password.";
+          typeof failRaw === 'string' && failRaw.trim()
+            ? failRaw.trim()
+            : "Invalid email or password.";
         Alert.alert("Login Failed", failMessage);
       }
-    } catch (error: any) {
-      setLoading(false);
-
+    } catch (error: unknown) {
       // Log the raw error so we can see exactly what the backend sends back
-      console.log("Login error status:", error.response?.status);
-      console.log("Login error data:", JSON.stringify(error.response?.data, null, 2));
+      const err = error as { response?: { status?: number; data?: unknown } };
+      console.log("Login error status:", err.response?.status);
+      console.log("Login error data:", JSON.stringify(err.response?.data, null, 2));
 
-      const errorDetail =
-        error.response?.data?.detail ||
-        error.response?.data?.message ||
-        (error.response?.status === 401 || error.response?.status === 403
-          ? "Invalid email or password."
-          : "The server is starting up. Please try again in a few moments.");
-
-      Alert.alert("Login Failed", errorDetail);
+      Alert.alert("Login Failed", getLoginErrorMessage(error));
+    } finally {
+      loginInFlightRef.current = false;
+      setLoading(false);
     }
   };
 
@@ -248,8 +270,13 @@ const LoginForm = () => {
       {/* Sign In Button */}
       <TouchableOpacity
         onPress={handleLogin}
-        disabled={loading || serverStatus === 'checking'}
-        style={{ backgroundColor: serverStatus === 'checking' ? colors.mutedText : colors.primary }}
+        disabled={loading || serverStatus === 'checking' || serverStatus === 'offline'}
+        style={{
+          backgroundColor:
+            serverStatus === 'checking' || serverStatus === 'offline'
+              ? colors.mutedText
+              : colors.primary,
+        }}
         className="w-full h-[58px] rounded-2xl items-center justify-center shadow-md mt-2 active:opacity-90"
       >
         {loading ? (
