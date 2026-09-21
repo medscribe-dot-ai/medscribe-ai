@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, KeyboardAvoidingView, Platform, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '../../../src/theme/colors';
@@ -21,6 +21,33 @@ type Errors = {
     password?: string;
 };
 
+function getSaveErrorMessage(data: unknown, status: number): string {
+    const knownMessages = new Set([
+        'Email already registered',
+        'Username already taken',
+    ]);
+
+    const detail =
+        data && typeof data === 'object' && 'detail' in data
+            ? (data as { detail?: unknown }).detail
+            : undefined;
+    const message =
+        data && typeof data === 'object' && 'message' in data
+            ? (data as { message?: unknown }).message
+            : undefined;
+
+    if (typeof detail === 'string' && knownMessages.has(detail.trim())) {
+        return detail.trim();
+    }
+    if (typeof message === 'string' && knownMessages.has(message.trim())) {
+        return message.trim();
+    }
+    if (status === 422 || Array.isArray(detail)) {
+        return 'Please check the form and try again.';
+    }
+    return 'Unable to save receptionist. Please try again.';
+}
+
 export default function AddReceptionist() {
     const router = useRouter();
     const { editData } = useLocalSearchParams();
@@ -31,6 +58,7 @@ export default function AddReceptionist() {
     const [serverReady, setServerReady] = useState(false);
     const [errors, setErrors] = useState<Errors>({});
     const [editingId, setEditingId] = useState<number | null>(null);
+    const submitInFlightRef = useRef(false);
 
     const [form, setForm] = useState({
         name: '',
@@ -109,9 +137,9 @@ export default function AddReceptionist() {
 
     const validatePassword = (v: string) => {
         if (!isEditMode) {
-            if (!v) return 'Password is required.';
+            if (!v.trim()) return 'Password is required.';
             if (v.length < 6) return 'Password must be at least 6 characters.';
-        } else if (v && v.length < 6) {
+        } else if (v.trim() && v.length < 6) {
             return 'Password must be at least 6 characters.';
         }
         return undefined;
@@ -138,19 +166,31 @@ export default function AddReceptionist() {
     const handleRegisterOrUpdate = async () => {
         if (!validateForm()) return;
 
+        if (isEditMode) {
+            if (editingId == null || !Number.isFinite(editingId)) {
+                Alert.alert(
+                    'Error',
+                    'Unable to edit receptionist. The receptionist ID is missing.'
+                );
+                return;
+            }
+        }
+
+        if (submitInFlightRef.current) return;
+        submitInFlightRef.current = true;
         setLoading(true);
 
         try {
             const apiUrl = API_URL;
 
-            if (isEditMode && editingId) {
-                const payload: any = {
+            if (isEditMode) {
+                const payload: Record<string, unknown> = {
                     name: form.name.trim(),
                     username: form.username.trim().toLowerCase(),
                     email: form.email.trim().toLowerCase(),
                     phone: form.phone.trim() || null,
                 };
-                if (form.password) {
+                if (form.password.trim()) {
                     payload.password = form.password;
                 }
 
@@ -161,22 +201,20 @@ export default function AddReceptionist() {
                 });
 
                 const responseText = await response.text();
-                let data: any = {};
+                let data: unknown = {};
                 try {
                     data = JSON.parse(responseText);
                 } catch {
-                    setLoading(false);
-                    Alert.alert('Error', responseText || 'Something went wrong. Please try again.');
+                    Alert.alert('Error', 'Unable to save receptionist. Please try again.');
                     return;
                 }
 
-                setLoading(false);
                 if (response.ok) {
                     Alert.alert('Receptionist updated successfully.', 'Receptionist updated successfully.', [
                         { text: 'OK', onPress: () => router.replace('/(admin)/receptionist') },
                     ]);
                 } else {
-                    Alert.alert('Error', typeof data.detail === 'string' ? data.detail : 'Update failed.');
+                    Alert.alert('Error', getSaveErrorMessage(data, response.status));
                 }
                 return;
             }
@@ -199,33 +237,27 @@ export default function AddReceptionist() {
             });
 
             const responseText = await response.text();
-            let data: any = {};
+            let data: unknown = {};
             try {
                 data = JSON.parse(responseText);
             } catch {
-                setLoading(false);
-                Alert.alert('Error', responseText || 'Something went wrong. Please try again.');
+                Alert.alert('Error', 'Unable to save receptionist. Please try again.');
                 return;
             }
 
-            setLoading(false);
             if (response.ok) {
                 Alert.alert('Receptionist added successfully.', 'Receptionist registered successfully!', [
                     { text: 'OK', onPress: () => router.replace('/(admin)/receptionist') },
                 ]);
             } else {
-                let errorMsg = 'Something went wrong.';
-                if (typeof data.detail === 'string') {
-                    errorMsg = data.detail;
-                } else if (Array.isArray(data.detail)) {
-                    errorMsg = data.detail.map((e: any) => e.msg || JSON.stringify(e)).join('\n');
-                }
-                Alert.alert('Error', errorMsg);
+                Alert.alert('Error', getSaveErrorMessage(data, response.status));
             }
         } catch (error) {
-            setLoading(false);
             console.log('Fetch error:', error);
             Alert.alert('Connection Error', 'Unable to connect to the server. Please check your internet connection and try again.');
+        } finally {
+            submitInFlightRef.current = false;
+            setLoading(false);
         }
     };
 
