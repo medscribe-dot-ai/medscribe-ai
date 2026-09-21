@@ -79,7 +79,7 @@ export const getDoctorDashboard = async () => {
   }
 
   const stats: DashboardStats = {
-    totalInQueue: queue.filter((q) => q.status === 'waiting').length,
+    totalInQueue: queue.length,
     completedToday,
     weekConsultations: 0,
     avgWaitTime: '—',

@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
@@ -30,6 +30,30 @@ function formatQueueStatus(status: string | null | undefined): string {
   return key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+/** Prefer current in_progress visit; else earliest waiting by scheduled_time. */
+function selectNextAppointmentId(queue: DoctorQueueItem[]): number | null {
+  if (!queue.length) return null;
+
+  const inProgress = queue.filter((q) => (q.status || '').toLowerCase() === 'in_progress');
+  if (inProgress.length > 0) {
+    inProgress.sort((a, b) => {
+      const ta = a.scheduled_time ? new Date(a.scheduled_time).getTime() : Number.POSITIVE_INFINITY;
+      const tb = b.scheduled_time ? new Date(b.scheduled_time).getTime() : Number.POSITIVE_INFINITY;
+      return ta - tb;
+    });
+    return inProgress[0].appointment_id;
+  }
+
+  const waiting = queue.filter((q) => (q.status || '').toLowerCase() === 'waiting');
+  if (waiting.length === 0) return null;
+  waiting.sort((a, b) => {
+    const ta = a.scheduled_time ? new Date(a.scheduled_time).getTime() : Number.POSITIVE_INFINITY;
+    const tb = b.scheduled_time ? new Date(b.scheduled_time).getTime() : Number.POSITIVE_INFINITY;
+    return ta - tb;
+  });
+  return waiting[0].appointment_id;
+}
+
 export default function DoctorDashboard() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -37,6 +61,7 @@ export default function DoctorDashboard() {
   const [data, setData] = useState<any>(null);
   const [doctorName, setDoctorName] = useState('Doctor');
   const [startingId, setStartingId] = useState<number | null>(null);
+  const startLockRef = useRef(false);
 
   const loadDashboard = async () => {
     try {
@@ -60,6 +85,8 @@ export default function DoctorDashboard() {
 
   useFocusEffect(
     useCallback(() => {
+      startLockRef.current = false;
+      setStartingId(null);
       loadDashboard();
     }, [])
   );
@@ -67,8 +94,10 @@ export default function DoctorDashboard() {
   const formatTime = (iso: string | null) => formatAppointmentTime(iso);
 
   const handleStartConsultation = async (item: DoctorQueueItem) => {
+    if (startLockRef.current) return;
+    startLockRef.current = true;
+    setStartingId(item.appointment_id);
     try {
-      setStartingId(item.appointment_id);
       if (item.status === 'waiting') {
         await startConsultationVisit(item.appointment_id);
       }
@@ -83,6 +112,7 @@ export default function DoctorDashboard() {
         },
       });
     } catch (error: any) {
+      startLockRef.current = false;
       const detail = error.response?.data?.detail || 'Could not start consultation.';
       Alert.alert('Start Failed', String(detail));
     } finally {
@@ -103,6 +133,9 @@ export default function DoctorDashboard() {
       },
     ]);
   };
+
+  const queue: DoctorQueueItem[] = data?.queue || [];
+  const nextAppointmentId = useMemo(() => selectNextAppointmentId(queue), [queue]);
 
   if (loading) {
     return (
@@ -148,14 +181,12 @@ export default function DoctorDashboard() {
     );
   }
 
-  const queue: DoctorQueueItem[] = data?.queue || [];
-
   return (
     <SafeAreaView style={{ backgroundColor: themeColors.background }} className="flex-1" edges={[]}>
       <StatusBar style="dark" />
       <ScrollView
         className="flex-1 px-5"
-        contentContainerStyle={{ paddingTop: 20, paddingBottom: 32 }}
+        contentContainerStyle={{ paddingTop: 20, paddingBottom: 100 }}
         showsVerticalScrollIndicator={false}
       >
         <View className="flex-row justify-between items-center mb-8">
@@ -205,7 +236,7 @@ export default function DoctorDashboard() {
 
         <View className="flex-row justify-between items-center mb-4">
           <Text className="text-xl font-bold text-slate-900">Patient Queue</Text>
-          <TouchableOpacity onPress={() => router.push('/(doctor)/queue/patient_queue')}>
+          <TouchableOpacity onPress={() => router.navigate('/(doctor)/queue/patient_queue')}>
             <Text style={{ color: themeColors.primary }} className="font-bold text-sm">
               View all
             </Text>
@@ -221,8 +252,8 @@ export default function DoctorDashboard() {
             </Text>
           </View>
         ) : (
-          queue.map((item: DoctorQueueItem, index: number) => {
-            const isNext = index === 0;
+          queue.map((item: DoctorQueueItem) => {
+            const isNext = item.appointment_id === nextAppointmentId;
             return (
               <View
                 key={item.appointment_id}
@@ -259,7 +290,7 @@ export default function DoctorDashboard() {
                 </View>
                 <TouchableOpacity
                   onPress={() => handleStartConsultation(item)}
-                  disabled={startingId === item.appointment_id}
+                  disabled={startingId !== null}
                   style={{ backgroundColor: themeColors.primary }}
                   className="mt-3 py-3 rounded-2xl flex-row items-center justify-center gap-x-2"
                 >
