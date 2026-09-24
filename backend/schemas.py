@@ -242,6 +242,72 @@ class AppointmentResponse(BaseModel):
         from_attributes = True
 
 
+class AvailableSlot(BaseModel):
+    time: str
+    scheduled_time: str
+
+
+class AvailableSlotsResponse(BaseModel):
+    doctor_id: int
+    date: str
+    available_slots: List[AvailableSlot]
+
+
+class AiReceptionistBookRequest(BaseModel):
+    patient_id: int
+    doctor_id: int
+    # UTC ISO, same value returned by GET /ai-receptionist/available-slots
+    scheduled_time: datetime.datetime
+    # waiting = Current OPD (queue token now); scheduled = future (no token yet).
+    # If omitted, inferred from clinic date: today → waiting, future → scheduled.
+    status: Optional[str] = None
+
+
+class AiReceptionistBookResponse(BaseModel):
+    appointment_id: int
+    patient_id: int
+    patient_name: Optional[str] = None
+    patient_code: Optional[str] = None
+    doctor_id: int
+    doctor_name: Optional[str] = None
+    date: Optional[str] = None
+    time: Optional[str] = None
+    scheduled_time: Optional[str] = None
+    status: Optional[str] = None
+    queue_token: Optional[str] = None
+    department: Optional[str] = None
+    doctor_specialization: Optional[str] = None
+
+
+class AiReceptionistPatientMatch(BaseModel):
+    patient_id: int
+    patient_code: Optional[str] = None
+    patient_name: str
+    phone: Optional[str] = None
+    age: Optional[int] = None
+    department: Optional[str] = None
+    assigned_doctor_id: Optional[int] = None
+    assigned_doctor_name: Optional[str] = None
+
+
+class AiReceptionistPatientSearchResponse(BaseModel):
+    matches: List[AiReceptionistPatientMatch]
+    ambiguous: bool = False
+
+
+class AiReceptionistDoctorMatch(BaseModel):
+    doctor_id: int
+    doctor_name: str
+    specialization: Optional[str] = None
+    # Same value as specialization — receptionist booking uses specialization as department.
+    department: Optional[str] = None
+
+
+class AiReceptionistDoctorSearchResponse(BaseModel):
+    matches: List[AiReceptionistDoctorMatch]
+    ambiguous: bool = False
+
+
 # ── Patient Longitudinal History ─────────────────────────────
 
 class PatientHistorySoapSections(BaseModel):

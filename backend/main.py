@@ -2,7 +2,7 @@ from fastapi import FastAPI, Depends, HTTPException, status, BackgroundTasks, He
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, NoReturn
 import os, datetime, re, json
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from database import engine, get_db, Base
@@ -1628,6 +1628,508 @@ def update_appointment_status(
         raise HTTPException(status_code=500, detail=f"Failed to update status: {str(e)}")
 
     return _appointment_response(appt, db)
+
+
+# ====================== AI RECEPTIONIST ======================
+
+def _format_minutes_to_display(total_minutes: int) -> str:
+    """12-hour clock matching schedule labels, e.g. 03:00 PM."""
+    hour_24 = total_minutes // 60
+    minute = total_minutes % 60
+    period = "PM" if hour_24 >= 12 else "AM"
+    hour_12 = hour_24 % 12
+    if hour_12 == 0:
+        hour_12 = 12
+    return f"{hour_12:02d}:{minute:02d} {period}"
+
+
+def _clinic_wall_to_utc_iso(date_str: str, total_minutes: int) -> str:
+    """
+    Clinic wall date + minutes → UTC ISO expected by POST /appointments.
+    Same encoding as frontend clinicWallDateTimeToUtcIso (Asia/Karachi → ...Z).
+    """
+    hour = total_minutes // 60
+    minute = total_minutes % 60
+    day = datetime.datetime.strptime(date_str, "%Y-%m-%d")
+    local = day.replace(
+        hour=hour,
+        minute=minute,
+        second=0,
+        microsecond=0,
+        tzinfo=_clinic_tz(),
+    )
+    utc = local.astimezone(datetime.timezone.utc)
+    return utc.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+
+def _booked_slot_minutes_for_doctor_date(
+    db: Session,
+    doctor_id: int,
+    date_str: str,
+) -> set:
+    """Minutes-from-midnight (clinic TZ) occupied by non-cancelled appointments."""
+    day_start, day_end = _clinic_day_utc_naive_bounds(date_str)
+    existing = (
+        db.query(models.Appointment)
+        .filter(
+            models.Appointment.doctor_id == doctor_id,
+            models.Appointment.scheduled_time >= day_start,
+            models.Appointment.scheduled_time < day_end,
+            models.Appointment.status.isnot(None),
+            models.Appointment.status != "cancelled",
+        )
+        .all()
+    )
+    booked = set()
+    for other in existing:
+        other_t = other.scheduled_time
+        if other_t is None:
+            continue
+        local = _to_clinic_local(other_t)
+        total = local.hour * 60 + local.minute
+        snapped = (total // APPOINTMENT_SLOT_MINUTES) * APPOINTMENT_SLOT_MINUTES
+        booked.add(snapped)
+    return booked
+
+
+@app.get("/ai-receptionist/available-slots", response_model=schemas.AvailableSlotsResponse)
+def get_ai_receptionist_available_slots(
+    doctor_id: int,
+    date: str,
+    db: Session = Depends(get_db),
+):
+    """
+    Read-only 30-minute open slots for one doctor on one clinic calendar date.
+    Does not create or modify appointments. Does not use doctors.availability_status.
+    """
+    try:
+        requested_date = datetime.datetime.strptime(date, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="date must be YYYY-MM-DD")
+
+    doctor = db.query(models.Doctor).filter(models.Doctor.doctor_id == doctor_id).first()
+    if not doctor:
+        raise HTTPException(status_code=404, detail="Doctor not found")
+
+    empty = {
+        "doctor_id": doctor_id,
+        "date": date,
+        "available_slots": [],
+    }
+
+    now_clinic = _clinic_now()
+    if requested_date < now_clinic.date():
+        return empty
+
+    day_local = datetime.datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=_clinic_tz())
+    schedule = _load_doctor_schedule(db, doctor_id)
+    range_str = schedule.get(_schedule_day_key(day_local))
+    if not range_str or not str(range_str).strip():
+        return empty
+
+    parsed = _parse_schedule_range(str(range_str))
+    if not parsed:
+        return empty
+    start, end = parsed
+
+    booked_minutes = _booked_slot_minutes_for_doctor_date(db, doctor_id, date)
+    is_today = requested_date == now_clinic.date()
+
+    available_slots = []
+    t = start
+    while t + APPOINTMENT_SLOT_MINUTES <= end:
+        if t not in booked_minutes:
+            slot_local = day_local.replace(
+                hour=t // 60,
+                minute=t % 60,
+                second=0,
+                microsecond=0,
+            )
+            if not (is_today and slot_local <= now_clinic):
+                available_slots.append({
+                    "time": _format_minutes_to_display(t),
+                    "scheduled_time": _clinic_wall_to_utc_iso(date, t),
+                })
+        t += APPOINTMENT_SLOT_MINUTES
+
+    return {
+        "doctor_id": doctor_id,
+        "date": date,
+        "available_slots": available_slots,
+    }
+
+
+def _ai_receptionist_error(status_code: int, code: str, message: str) -> NoReturn:
+    raise HTTPException(status_code=status_code, detail={"code": code, "message": message})
+
+
+def _reraise_as_ai_booking_error(exc: HTTPException) -> None:
+    """Map existing POST /appointments errors to structured AI-receptionist codes."""
+    detail = exc.detail
+    if isinstance(detail, dict) and detail.get("code"):
+        raise exc
+
+    text = str(detail) if detail is not None else "Booking validation failure."
+    low = text.lower()
+
+    if exc.status_code == 404 and "patient" in low:
+        _ai_receptionist_error(404, "patient_not_found", text)
+    if exc.status_code == 404 and "doctor" in low:
+        _ai_receptionist_error(404, "doctor_not_found", text)
+    if "already booked" in low:
+        _ai_receptionist_error(409, "slot_already_booked", text)
+    if "active opd" in low:
+        _ai_receptionist_error(409, "booking_validation_failure", text)
+    if any(
+        phrase in low
+        for phrase in (
+            "not scheduled",
+            "working hours",
+            "outside doctor",
+            "does not fit",
+            "schedule for",
+            "outside working hours",
+        )
+    ):
+        _ai_receptionist_error(409, "doctor_unavailable", text)
+    if any(
+        phrase in low
+        for phrase in (
+            "scheduled_time",
+            "past time",
+            "past date",
+            "today",
+            "must align",
+            "invalid date",
+            "date must be",
+        )
+    ):
+        _ai_receptionist_error(400, "invalid_datetime", text)
+    _ai_receptionist_error(
+        exc.status_code or 400,
+        "booking_validation_failure",
+        text,
+    )
+
+
+def _resolve_ai_booking_status(
+    scheduled_utc_naive: datetime.datetime,
+    explicit_status: Optional[str],
+) -> str:
+    if explicit_status and str(explicit_status).strip():
+        status = str(explicit_status).lower().strip()
+        if status not in ("waiting", "scheduled"):
+            _ai_receptionist_error(
+                400,
+                "booking_validation_failure",
+                "New appointments may only start as 'waiting' or 'scheduled'.",
+            )
+        return status
+
+    local = _to_clinic_local(scheduled_utc_naive)
+    today = _clinic_now().date()
+    if local.date() == today:
+        return "waiting"
+    if local.date() > today:
+        return "scheduled"
+    _ai_receptionist_error(400, "invalid_datetime", "Cannot book a past date/time.")
+
+
+def _ai_booking_confirmation(created: dict) -> dict:
+    scheduled = created.get("scheduled_time")
+    date_str = None
+    time_str = None
+    scheduled_iso = None
+    if scheduled is not None:
+        local = _to_clinic_local(scheduled)
+        date_str = local.strftime("%Y-%m-%d")
+        total = local.hour * 60 + local.minute
+        time_str = _format_minutes_to_display(total)
+        scheduled_iso = _clinic_wall_to_utc_iso(date_str, total)
+    return {
+        "appointment_id": created["appointment_id"],
+        "patient_id": created["patient_id"],
+        "patient_name": created.get("patient_name"),
+        "patient_code": created.get("patient_code"),
+        "doctor_id": created["doctor_id"],
+        "doctor_name": created.get("doctor_name"),
+        "date": date_str,
+        "time": time_str,
+        "scheduled_time": scheduled_iso,
+        "status": created.get("status"),
+        "queue_token": created.get("queue_token"),
+        "department": created.get("department"),
+        "doctor_specialization": created.get("doctor_specialization"),
+    }
+
+
+@app.post("/ai-receptionist/book-appointment", response_model=schemas.AiReceptionistBookResponse)
+def book_ai_receptionist_appointment(
+    payload: schemas.AiReceptionistBookRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    AI receptionist booking tool. Validates patient/doctor/slot, then reuses
+    POST /appointments (create_appointment) for insert, doctor assignment, and
+    queue-token behavior. Does not invent an alternate slot.
+    """
+    patient = db.query(models.Patient).filter(
+        models.Patient.patient_id == payload.patient_id
+    ).first()
+    if not patient:
+        _ai_receptionist_error(404, "patient_not_found", "Patient not found")
+
+    doctor = db.query(models.Doctor).filter(
+        models.Doctor.doctor_id == payload.doctor_id
+    ).first()
+    if not doctor:
+        _ai_receptionist_error(404, "doctor_not_found", "Doctor not found")
+
+    if payload.scheduled_time is None:
+        _ai_receptionist_error(400, "invalid_datetime", "scheduled_time is required.")
+
+    scheduled_time = _store_naive_utc_minute(payload.scheduled_time)
+    status = _resolve_ai_booking_status(scheduled_time, payload.status)
+
+    try:
+        _validate_against_doctor_schedule(db, payload.doctor_id, scheduled_time, status)
+    except HTTPException as exc:
+        _reraise_as_ai_booking_error(exc)
+
+    local = _to_clinic_local(scheduled_time)
+    date_str = local.strftime("%Y-%m-%d")
+    slot_minutes = (local.hour * 60 + local.minute)
+    slot_minutes = (slot_minutes // APPOINTMENT_SLOT_MINUTES) * APPOINTMENT_SLOT_MINUTES
+    booked = _booked_slot_minutes_for_doctor_date(db, payload.doctor_id, date_str)
+    if slot_minutes in booked:
+        _ai_receptionist_error(
+            409,
+            "slot_already_booked",
+            "This time slot is already booked for this doctor.",
+        )
+
+    try:
+        created = create_appointment(
+            schemas.AppointmentCreate(
+                patient_id=payload.patient_id,
+                doctor_id=payload.doctor_id,
+                scheduled_time=payload.scheduled_time,
+                status=status,
+            ),
+            db,
+        )
+    except HTTPException as exc:
+        _reraise_as_ai_booking_error(exc)
+
+    return _ai_booking_confirmation(created)
+
+
+def _normalize_ai_search_params(
+    patient_code: Optional[str],
+    name: Optional[str],
+    phone: Optional[str],
+) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    code = (patient_code or "").strip() or None
+    name_q = (name or "").strip() or None
+    phone_q = normalize_patient_phone(phone)
+    return code, name_q, phone_q
+
+
+def _patient_matches_ai_search(
+    patient: models.Patient,
+    patient_code: Optional[str],
+    name: Optional[str],
+    phone_normalized: Optional[str],
+) -> bool:
+    if patient_code:
+        stored_code = (patient.patient_code or "").strip()
+        if stored_code.lower() != patient_code.lower():
+            return False
+    if name:
+        stored_name = (patient.name or "")
+        if name.lower() not in stored_name.lower():
+            return False
+    if phone_normalized:
+        if normalize_patient_phone(patient.phone) != phone_normalized:
+            return False
+    return True
+
+
+def _ai_patient_match_payload(patient: models.Patient) -> dict:
+    doctor_name = None
+    assigned = getattr(patient, "assigned_doctor", None)
+    if assigned is not None and getattr(assigned, "user", None) is not None:
+        doctor_name = assigned.user.name
+    return {
+        "patient_id": patient.patient_id,
+        "patient_code": patient.patient_code,
+        "patient_name": patient.name,
+        "phone": patient.phone,
+        "age": patient.age,
+        "department": patient.department,
+        "assigned_doctor_id": patient.assigned_doctor_id,
+        "assigned_doctor_name": doctor_name,
+    }
+
+
+@app.get(
+    "/ai-receptionist/patients/search",
+    response_model=schemas.AiReceptionistPatientSearchResponse,
+)
+def search_ai_receptionist_patients(
+    patient_code: Optional[str] = None,
+    name: Optional[str] = None,
+    phone: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """
+    Read-only patient lookup for the AI receptionist.
+    Never silently picks the first name match; multiple hits set ambiguous=true.
+    """
+    code, name_q, phone_q = _normalize_ai_search_params(patient_code, name, phone)
+    if not code and not name_q and not phone_q:
+        _ai_receptionist_error(
+            400,
+            "invalid_search",
+            "Provide patient_code, name, or phone.",
+        )
+
+    query = db.query(models.Patient)
+    if code:
+        query = query.filter(func.lower(models.Patient.patient_code) == code.lower())
+    if name_q:
+        query = query.filter(models.Patient.name.ilike(f"%{name_q}%"))
+    if phone_q and not code and not name_q:
+        query = query.filter(
+            models.Patient.phone.isnot(None),
+            models.Patient.phone != "",
+        )
+
+    patients = query.order_by(
+        models.Patient.created_at.desc(),
+        models.Patient.patient_id.desc(),
+    ).all()
+
+    matched = [
+        p for p in patients
+        if _patient_matches_ai_search(p, code, name_q, phone_q)
+    ]
+    matches = [_ai_patient_match_payload(p) for p in matched]
+    return {
+        "matches": matches,
+        "ambiguous": len(matches) > 1,
+    }
+
+
+def _normalize_ai_doctor_search_params(
+    name: Optional[str],
+    specialization: Optional[str],
+    department: Optional[str],
+) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    name_q = (name or "").strip() or None
+    spec_q = (specialization or "").strip() or None
+    dept_q = (department or "").strip() or None
+    return name_q, spec_q, dept_q
+
+
+def _strip_doctor_honorific(name_q: str) -> str:
+    """Allow 'Dr Ahmed' to match stored names like 'Ahmed' or 'Dr Ahmed'."""
+    trimmed = name_q.strip()
+    lowered = trimmed.lower()
+    for prefix in ("dr.", "dr ", "doctor "):
+        if lowered.startswith(prefix):
+            rest = trimmed[len(prefix):].strip()
+            return rest or trimmed
+    return trimmed
+
+
+def _doctor_matches_ai_search(
+    doctor: models.Doctor,
+    name: Optional[str],
+    specialization: Optional[str],
+    department: Optional[str],
+) -> bool:
+    stored_name = ""
+    if getattr(doctor, "user", None) is not None:
+        stored_name = doctor.user.name or ""
+    stored_spec = doctor.specialization or ""
+
+    if name:
+        needle = _strip_doctor_honorific(name).lower()
+        hay = stored_name.lower()
+        if needle not in hay and name.lower() not in hay:
+            return False
+    if specialization:
+        if specialization.lower() not in stored_spec.lower():
+            return False
+    if department:
+        # No doctors.department column; booking uses specialization as department.
+        if department.lower() not in stored_spec.lower():
+            return False
+    return True
+
+
+def _ai_doctor_match_payload(doctor: models.Doctor) -> dict:
+    doctor_name = ""
+    if getattr(doctor, "user", None) is not None:
+        doctor_name = doctor.user.name or ""
+    spec = doctor.specialization
+    return {
+        "doctor_id": doctor.doctor_id,
+        "doctor_name": doctor_name,
+        "specialization": spec,
+        "department": spec,
+    }
+
+
+@app.get(
+    "/ai-receptionist/doctors/search",
+    response_model=schemas.AiReceptionistDoctorSearchResponse,
+)
+def search_ai_receptionist_doctors(
+    name: Optional[str] = None,
+    specialization: Optional[str] = None,
+    department: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """
+    Read-only doctor lookup for the AI receptionist.
+    Never silently picks the first match; multiple hits set ambiguous=true.
+    Does not use availability_status as a booking gate (same as POST /appointments).
+    """
+    name_q, spec_q, dept_q = _normalize_ai_doctor_search_params(
+        name, specialization, department
+    )
+    if not name_q and not spec_q and not dept_q:
+        _ai_receptionist_error(
+            400,
+            "invalid_search",
+            "Provide name, specialization, or department.",
+        )
+
+    query = db.query(models.Doctor)
+    if name_q:
+        needle = _strip_doctor_honorific(name_q)
+        query = query.join(models.User, models.Doctor.user_id == models.User.user_id).filter(
+            (models.User.name.ilike(f"%{needle}%"))
+            | (models.User.name.ilike(f"%{name_q}%"))
+        )
+    if spec_q:
+        query = query.filter(models.Doctor.specialization.ilike(f"%{spec_q}%"))
+    if dept_q:
+        query = query.filter(models.Doctor.specialization.ilike(f"%{dept_q}%"))
+
+    doctors = query.order_by(models.Doctor.doctor_id.asc()).all()
+    matched = [
+        d for d in doctors
+        if getattr(d, "user", None) is not None
+        and _doctor_matches_ai_search(d, name_q, spec_q, dept_q)
+    ]
+    matches = [_ai_doctor_match_payload(d) for d in matched]
+    return {
+        "matches": matches,
+        "ambiguous": len(matches) > 1,
+    }
 
 
 # ====================== RECEPTIONIST ENDPOINTS ======================
